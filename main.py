@@ -1,11 +1,16 @@
 import yfinance as yf
+import pandas as pd
 import matplotlib.pyplot as plt
 
-from strategy.moving_average import moving_average_strategy
 
+from strategy.moving_average import moving_average_strategy
+from backtests.backtest import backtest_strategy
 
 # Download Apple stock data
-data = yf.download("AAPL", period="1y")
+data = yf.download("AAPL", period="1y", auto_adjust=False)
+
+if isinstance(data.columns, pd.MultiIndex):
+    data.columns = data.columns.droplevel(1)
 
 # Apply trading strategy
 data = moving_average_strategy(data)
@@ -27,3 +32,5 @@ plt.ylabel("Price")
 plt.legend()
 
 plt.show()
+
+backtest_strategy(data)
