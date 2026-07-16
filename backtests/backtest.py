@@ -1,3 +1,6 @@
+import csv
+from datetime import datetime
+
 def backtest_strategy(data, initial_balance=1000, stop_loss=0.05, take_profit=0.10):
     balance = initial_balance
     shares = 0
@@ -5,6 +8,7 @@ def backtest_strategy(data, initial_balance=1000, stop_loss=0.05, take_profit=0.
     wins = 0
     losses = 0
     buy_price = 0
+    trade_history = []
 
     for index, row in data.iterrows():
 
@@ -15,6 +19,12 @@ def backtest_strategy(data, initial_balance=1000, stop_loss=0.05, take_profit=0.
             shares = balance / price
             balance = 0
             buy_price = price
+
+            trade_history.append([
+                index,
+                "BUY",
+                price
+            ])
 
             print(f"BUY at {price:.2f}")
 
@@ -30,6 +40,12 @@ def backtest_strategy(data, initial_balance=1000, stop_loss=0.05, take_profit=0.
                 shares = 0
                 losses += 1
 
+                trade_history.append([
+                    index,
+                    "STOP LOSS",
+                    price
+                ])
+
                 print(f"STOP LOSS at {price:.2f}")
 
 
@@ -38,6 +54,12 @@ def backtest_strategy(data, initial_balance=1000, stop_loss=0.05, take_profit=0.
                 balance = shares * price
                 shares = 0
                 wins += 1
+
+                trade_history.append([
+                    index,
+                    "TAKE PROFIT",
+                    price
+                ])
 
                 print(f"TAKE PROFIT at {price:.2f}")
 
@@ -52,6 +74,12 @@ def backtest_strategy(data, initial_balance=1000, stop_loss=0.05, take_profit=0.
                 else:
                     losses += 1
 
+                trade_history.append([
+                    index,
+                    "SELL",
+                    price
+                ])
+
                 print(f"SELL at {price:.2f}")
 
 
@@ -59,6 +87,17 @@ def backtest_strategy(data, initial_balance=1000, stop_loss=0.05, take_profit=0.
     if shares > 0:
         balance = shares * data.iloc[-1]["Close"]
 
+    # Save trade history to CSV
+    with open("logs/trade_log.csv", "w", newline="") as file:
+        writer = csv.writer(file)
+
+        writer.writerow([
+            "Date",
+            "Action",
+            "Price"
+        ])
+
+        writer.writerows(trade_history)
 
     profit = balance - initial_balance
     percent_return = (profit / initial_balance) * 100
