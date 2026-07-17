@@ -14,7 +14,7 @@ def analyze_trades(file_path="logs/trade_log.csv"):
         if trade["Action"] == "BUY":
             buy_price = trade["Price"]
 
-        elif buy_price is not None:
+        elif buy_price is not None and trade["Action"] != "FINAL SELL":
             sell_price = trade["Price"]
 
             percent_change = (

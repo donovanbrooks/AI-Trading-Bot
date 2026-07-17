@@ -84,8 +84,20 @@ def backtest_strategy(data, initial_balance=1000, stop_loss=0.05, take_profit=0.
 
 
     # Close remaining position
+    # Close remaining position at end of test
     if shares > 0:
-        balance = shares * data.iloc[-1]["Close"]
+        final_price = data.iloc[-1]["Close"]
+
+        balance = shares * final_price
+        shares = 0
+
+        trade_history.append([
+            data.index[-1],
+            "FINAL SELL",
+            final_price
+        ])
+
+        print(f"FINAL SELL at {final_price:.2f}")
 
     # Save trade history to CSV
     with open("logs/trade_log.csv", "w", newline="") as file:
