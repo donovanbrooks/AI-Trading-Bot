@@ -120,3 +120,25 @@ def backtest_strategy(data, initial_balance=1000, stop_loss=0.05, take_profit=0.
     print(f"Winning Trades: {wins}")
     print(f"Losing Trades: {losses}")
     print(f"Win Rate: {win_rate:.2f}%")
+
+
+def buy_and_hold(data, initial_balance=1000):
+
+    start_price = data.iloc[0]["Close"]
+    end_price = data.iloc[-1]["Close"]
+
+    shares = initial_balance / start_price
+
+    final_balance = shares * end_price
+
+    profit = final_balance - initial_balance
+    percent_return = (profit / initial_balance) * 100
+
+    print("\n--------------------")
+    print("Buy & Hold Comparison")
+    print("--------------------")
+    print(f"Starting Balance: ${initial_balance:.2f}")
+    print(f"Ending Balance: ${final_balance:.2f}")
+    print(f"Return: {percent_return:.2f}%")
+
+    return final_balance

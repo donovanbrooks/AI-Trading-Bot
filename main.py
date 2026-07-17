@@ -4,7 +4,8 @@ import matplotlib.pyplot as plt
 
 
 from strategy.moving_average import moving_average_strategy
-from backtests.backtest import backtest_strategy
+from backtests.backtest import backtest_strategy, buy_and_hold
+from analysis.trade_analyzer import analyze_trades
 
 # Download Apple stock data
 data = yf.download("AAPL", period="1y", auto_adjust=False)
@@ -34,3 +35,5 @@ plt.legend()
 plt.show()
 
 backtest_strategy(data)
+buy_and_hold(data)
+analyze_trades()
