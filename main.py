@@ -8,6 +8,7 @@ from backtests.backtest import backtest_strategy, buy_and_hold
 from analysis.trade_analyzer import analyze_trades
 from optimization.optimizer import optimize_strategy
 from testing.walk_forward import walk_forward_test
+from models.price_predictor import train_price_model
 
 # Download Apple stock data
 data = yf.download("AAPL", period="1y", auto_adjust=False)
@@ -48,3 +49,5 @@ print("\nBest Strategy:")
 print(best_strategy)
 
 walk_forward_test(data)
+
+train_price_model(data)
