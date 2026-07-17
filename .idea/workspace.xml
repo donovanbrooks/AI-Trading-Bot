@@ -4,13 +4,11 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="eed7932f-09b5-4ff2-8e05-af4f2053086b" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/AI-Trading-Bot.iml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Main.py" afterDir="false" />
+    <list default="true" id="eed7932f-09b5-4ff2-8e05-af4f2053086b" name="Changes" comment="Add AI walk forward trading evaluation">
+      <change afterPath="$PROJECT_DIR$/logs/trade_log.csv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/AI-Trading-Bot.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/AI-Trading-Bot.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/price_predictor.py" beforeDir="false" afterPath="$PROJECT_DIR$/models/price_predictor.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -25,6 +23,11 @@
     </option>
   </component>
   <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="main" />
+      </map>
+    </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="ProjectColorInfo"><![CDATA[{
@@ -35,18 +38,21 @@
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
+    <option name="sortKey" value="BY_TIME_ASCENDING" />
   </component>
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "Python.Main.executor": "Run",
+    "Python.main.executor": "Run",
+    "Python.moving_average.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
     "codeWithMe.voiceChat.enabledByDefault": "false",
     "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
-    "git-widget-placeholder": "main",
+    "git-widget-placeholder": "ai-experiments",
     "junie.onboarding.icon.badge.shown": "true",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
@@ -57,6 +63,39 @@
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/Strategy" />
+    </key>
+  </component>
+  <component name="RunManager">
+    <configuration name="main" type="PythonConfigurationType" factoryName="Python">
+      <module name="AI-Trading-Bot" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="SDK_NAME" value="Python 3.9 (AI-Trading-Bot)" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="false" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="false" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="RUN_TOOL" value="" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/main.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+  </component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -72,14 +111,128 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1784238410461</updated>
-      <workItem from="1784238411476" duration="539000" />
+      <workItem from="1784238411476" duration="13718000" />
     </task>
+    <task id="LOCAL-00001" summary="Initial working stock data download">
+      <option name="closed" value="true" />
+      <created>1784239198427</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1784239198427</updated>
+    </task>
+    <task id="LOCAL-00002" summary="Initial trading bot setup add gitignore">
+      <option name="closed" value="true" />
+      <created>1784239995022</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1784239995022</updated>
+    </task>
+    <task id="LOCAL-00003" summary="Add moving average trading strategy">
+      <option name="closed" value="true" />
+      <created>1784241962870</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1784241962870</updated>
+    </task>
+    <task id="LOCAL-00004" summary="Add first backtesting system">
+      <option name="closed" value="true" />
+      <created>1784242826980</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1784242826980</updated>
+    </task>
+    <task id="LOCAL-00005" summary="Add trading performance analytics">
+      <option name="closed" value="true" />
+      <created>1784243068183</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1784243068183</updated>
+    </task>
+    <task id="LOCAL-00006" summary="Add risk management with stop loss and take profit">
+      <option name="closed" value="true" />
+      <created>1784243537743</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1784243537743</updated>
+    </task>
+    <task id="LOCAL-00007" summary="Add trade journal logging">
+      <option name="closed" value="true" />
+      <created>1784245191301</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1784245191301</updated>
+    </task>
+    <task id="LOCAL-00008" summary="Add buy and hold benchmark comparison">
+      <option name="closed" value="true" />
+      <created>1784247189162</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1784247189162</updated>
+    </task>
+    <task id="LOCAL-00009" summary="Add moving average strategy optimizer">
+      <option name="closed" value="true" />
+      <created>1784248925655</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1784248925655</updated>
+    </task>
+    <task id="LOCAL-00010" summary="Fix position closing and improve walk forward testing">
+      <option name="closed" value="true" />
+      <created>1784250554580</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1784250554580</updated>
+    </task>
+    <task id="LOCAL-00011" summary="Add machine learning price prediction model">
+      <option name="closed" value="true" />
+      <created>1784251284985</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL-00011" />
+      <option name="project" value="LOCAL" />
+      <updated>1784251284986</updated>
+    </task>
+    <task id="LOCAL-00012" summary="Add AI walk forward trading evaluation">
+      <option name="closed" value="true" />
+      <created>1784254005409</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1784254005409</updated>
+    </task>
+    <option name="localTasksCounter" value="13" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="Initial working stock data download" />
+    <MESSAGE value="Initial trading bot setup add gitignore" />
+    <MESSAGE value="Add moving average trading strategy" />
+    <MESSAGE value="Add first backtesting system" />
+    <MESSAGE value="Add trading performance analytics" />
+    <MESSAGE value="Add risk management with stop loss and take profit" />
+    <MESSAGE value="Add trade journal logging" />
+    <MESSAGE value="Add buy and hold benchmark comparison" />
+    <MESSAGE value="Add moving average strategy optimizer" />
+    <MESSAGE value="Fix position closing and improve walk forward testing" />
+    <MESSAGE value="Add machine learning price prediction model" />
+    <MESSAGE value="Add AI walk forward trading evaluation" />
+    <option name="LAST_COMMIT_MESSAGE" value="Add AI walk forward trading evaluation" />
+  </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/AI_Trading_Bot$Main.coverage" NAME="Main Coverage Results" MODIFIED="1784238796006" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/AI_Trading_Bot$main.coverage" NAME="main Coverage Results" MODIFIED="1784321946243" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/AI_Trading_Bot$moving_average.coverage" NAME="moving_average Coverage Results" MODIFIED="1784240792092" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

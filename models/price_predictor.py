@@ -16,6 +16,22 @@ def create_features(data):
 
     df["Volume_Change"] = df["Volume"].pct_change()
 
+    # Volatility (10-day rolling standard deviation)
+    df["Volatility"] = df["Return"].rolling(window=10).std()
+
+    # RSI
+    delta = df["Close"].diff()
+
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+
+    avg_gain = gain.rolling(window=14).mean()
+    avg_loss = loss.rolling(window=14).mean()
+
+    rs = avg_gain / avg_loss
+
+    df["RSI"] = 100 - (100 / (1 + rs))
+
     return df
 
 def train_price_model(data):
@@ -41,7 +57,9 @@ def train_price_model(data):
         "Return",
         "MA_10",
         "MA_20",
-        "Volume_Change"
+        "Volume_Change",
+        "Volatility",
+        "RSI"
     ]
 
 
@@ -99,7 +117,9 @@ def predict_price_movement(model, data):
         "Return",
         "MA_10",
         "MA_20",
-        "Volume_Change"
+        "Volume_Change",
+        "Volatility",
+        "RSI"
     ]
 
     df["Prediction"] = model.predict(
