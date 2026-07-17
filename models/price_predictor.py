@@ -4,12 +4,10 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
-
-def train_price_model(data):
+def create_features(data):
 
     df = data.copy()
 
-    # Create features
     df["Return"] = df["Close"].pct_change()
 
     df["MA_10"] = df["Close"].rolling(window=10).mean()
@@ -17,6 +15,12 @@ def train_price_model(data):
     df["MA_20"] = df["Close"].rolling(window=20).mean()
 
     df["Volume_Change"] = df["Volume"].pct_change()
+
+    return df
+
+def train_price_model(data):
+
+    df = create_features(data)
 
 
     # Create target
@@ -85,3 +89,21 @@ def train_price_model(data):
 
 
     return model
+def predict_price_movement(model, data):
+
+    df = create_features(data)
+
+    df = df.dropna()
+
+    features = [
+        "Return",
+        "MA_10",
+        "MA_20",
+        "Volume_Change"
+    ]
+
+    df["Prediction"] = model.predict(
+        df[features]
+    )
+
+    return df

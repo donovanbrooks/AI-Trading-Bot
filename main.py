@@ -9,6 +9,7 @@ from analysis.trade_analyzer import analyze_trades
 from optimization.optimizer import optimize_strategy
 from testing.walk_forward import walk_forward_test
 from models.price_predictor import train_price_model
+from ai_strategy.ai_trading_strategy import ai_strategy
 
 # Download Apple stock data
 data = yf.download("AAPL", period="1y", auto_adjust=False)
@@ -51,3 +52,4 @@ print(best_strategy)
 walk_forward_test(data)
 
 train_price_model(data)
+

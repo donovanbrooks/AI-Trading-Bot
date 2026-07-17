@@ -1,6 +1,7 @@
 from optimization.optimizer import optimize_strategy
 from strategy.moving_average import moving_average_strategy
 from backtests.backtest import backtest_strategy
+from ai_strategy.ai_trading_strategy import ai_strategy
 
 
 def walk_forward_test(data):
@@ -36,3 +37,14 @@ def walk_forward_test(data):
 
 
     backtest_strategy(test_data)
+
+    print("\n====================")
+    print("AI Strategy Testing")
+    print("====================")
+
+    ai_test_data = ai_strategy(
+        train_data,
+        test_data
+    )
+
+    backtest_strategy(ai_test_data)
