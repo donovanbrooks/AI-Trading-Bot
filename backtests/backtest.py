@@ -121,6 +121,8 @@ def backtest_strategy(data, initial_balance=1000, stop_loss=0.05, take_profit=0.
     print(f"Losing Trades: {losses}")
     print(f"Win Rate: {win_rate:.2f}%")
 
+    return balance
+
 
 def buy_and_hold(data, initial_balance=1000):
 
