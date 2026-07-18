@@ -15,7 +15,8 @@ def ai_strategy(train_data, test_data):
     df.loc[
         (df["Prediction"] == 1) &
         (df["Confidence"] >= 0.55) &
-        (df["MA_10"] > df["MA_20"]),
+        (df["MA_10"] > df["MA_20"]) &
+        (df["RSI"] < 70),
         "Signal"
     ] = 1
 
