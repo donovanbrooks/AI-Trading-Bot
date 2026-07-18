@@ -51,6 +51,6 @@ def walk_forward_test(data):
 
     backtest_strategy(
         ai_test_data,
-        stop_loss=0.10,
-        take_profit=0.15
+        stop_loss=0.05,
+        take_profit=0.10
     )

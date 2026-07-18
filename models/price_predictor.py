@@ -10,6 +10,8 @@ def create_features(data):
 
     df["Return"] = df["Close"].pct_change()
 
+    df["Momentum"] = df["Close"].pct_change(periods=5)
+
     df["MA_10"] = df["Close"].rolling(window=10).mean()
 
     df["MA_20"] = df["Close"].rolling(window=20).mean()
@@ -52,14 +54,14 @@ def train_price_model(data):
 
     df = df.dropna()
 
-
     features = [
         "Return",
         "MA_10",
         "MA_20",
         "Volume_Change",
         "Volatility",
-        "RSI"
+        "RSI",
+        "Momentum"
     ]
 
 
@@ -121,7 +123,8 @@ def predict_price_movement(model, data):
         "MA_20",
         "Volume_Change",
         "Volatility",
-        "RSI"
+        "RSI",
+        "Momentum"
     ]
 
     probabilities = model.predict_proba(df[features])

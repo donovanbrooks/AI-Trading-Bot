@@ -103,6 +103,11 @@ def backtest_strategy(
         balance = shares * final_price
         shares = 0
 
+        if final_price > buy_price:
+            wins += 1
+        else:
+            losses += 1
+
         trade_history.append([
             data.index[-1],
             "FINAL SELL",
