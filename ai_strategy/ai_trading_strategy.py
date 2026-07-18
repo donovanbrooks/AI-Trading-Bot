@@ -10,7 +10,7 @@ def ai_strategy(train_data, test_data):
         test_data
     )
 
-    df["Signal"] = 0
+    df["AI_Signal"] = 0
 
     # AI + Moving Average Confirmation BUY
     df.loc[
@@ -28,7 +28,7 @@ def ai_strategy(train_data, test_data):
         (df["Prediction"] == 0) &
         (df["Probability_Up"] <= 0.40) &
         (df["MA_10"] < df["MA_20"]),
-        "Signal"
+        "AI_Signal"
     ] = -1
 
     print("\nAverage AI Confidence:")
@@ -41,7 +41,10 @@ def ai_strategy(train_data, test_data):
         "MA_10",
         "MA_20",
         "RSI",
-        "Signal"
+        "AI_Signal"
     ]])
+
+    print("\nAI Signal Count:")
+    print(df["AI_Signal"].value_counts())
 
     return df

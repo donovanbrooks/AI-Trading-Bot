@@ -19,6 +19,8 @@ if isinstance(data.columns, pd.MultiIndex):
 # Apply trading strategy
 data = moving_average_strategy(data)
 
+data["Signal"] = data["MA_Signal"]
+
 # Display the latest data
 print(data.tail())
 

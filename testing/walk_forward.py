@@ -2,6 +2,7 @@ from optimization.optimizer import optimize_strategy
 from strategy.moving_average import moving_average_strategy
 from backtests.backtest import backtest_strategy
 from ai_strategy.ai_trading_strategy import ai_strategy
+from strategy.ensemble_strategy import ensemble_strategy
 
 
 def walk_forward_test(data):
@@ -28,29 +29,40 @@ def walk_forward_test(data):
     print("\nTesting Period")
     print("----------------")
 
-
     test_data = moving_average_strategy(
         test_data,
         short_window=short,
         long_window=long
     )
 
-    backtest_strategy(
-        test_data,
-        verbose=False
+    ai_test_data = ai_strategy(
+        train_data,
+        test_data
+    )
+
+    test_data["AI_Signal"] = ai_test_data["AI_Signal"]
+
+    print(test_data[["MA_Signal", "AI_Signal"]].tail())
+
+    print(test_data.columns)
+
+    ensemble_data = ensemble_strategy(test_data)
+
+    print("\nEnsemble Signals:")
+    print(
+        ensemble_data[
+            [
+                "Close",
+                "MA_Signal",
+                "AI_Signal",
+                "Ensemble_Score",
+                "Signal"
+            ]
+        ].tail(20)
     )
 
     print("\n====================")
     print("AI Strategy Testing")
     print("====================")
 
-    ai_test_data = ai_strategy(
-        train_data,
-        test_data
-    )
-
-    backtest_strategy(
-        ai_test_data,
-        stop_loss=0.05,
-        take_profit=0.10
-    )
+    backtest_strategy(ensemble_data)
