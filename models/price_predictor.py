@@ -128,6 +128,8 @@ def predict_price_movement(model, data):
 
     df["Probability_Up"] = probabilities[:, 1]
 
+    df["Confidence"] = probabilities.max(axis=1)
+
     df["Prediction"] = model.predict(df[features])
 
     return df

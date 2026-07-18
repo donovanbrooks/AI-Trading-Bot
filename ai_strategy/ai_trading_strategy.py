@@ -12,9 +12,18 @@ def ai_strategy(train_data, test_data):
 
     df["Signal"] = 0
 
-    df.loc[df["Probability_Up"] >= BUY_THRESHOLD, "Signal"] = 1
+    df.loc[
+        (df["Prediction"] == 1) &
+        (df["Confidence"] >= 0.55) &
+        (df["MA_10"] > df["MA_20"]),
+        "Signal"
+    ] = 1
 
-    df.loc[df["Probability_Up"] <= SELL_THRESHOLD, "Signal"] = -1
+    df.loc[
+        (df["Prediction"] == 0) &
+        (df["Confidence"] >= 0.70),
+        "Signal"
+    ] = -1
 
     print("\nAverage AI Confidence:")
     print(f"{df['Probability_Up'].mean():.2%}")
