@@ -79,9 +79,11 @@ def train_price_model(data):
 
     # Train model
 
+    from config import RANDOM_FOREST_TREES, RANDOM_SEED
+
     model = RandomForestClassifier(
-        n_estimators=100,
-        random_state=42
+        n_estimators=RANDOM_FOREST_TREES,
+        random_state=RANDOM_SEED
     )
 
     model.fit(
@@ -122,8 +124,10 @@ def predict_price_movement(model, data):
         "RSI"
     ]
 
-    df["Prediction"] = model.predict(
-        df[features]
-    )
+    probabilities = model.predict_proba(df[features])
+
+    df["Probability_Up"] = probabilities[:, 1]
+
+    df["Prediction"] = model.predict(df[features])
 
     return df

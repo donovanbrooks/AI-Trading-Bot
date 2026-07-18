@@ -35,8 +35,10 @@ def walk_forward_test(data):
         long_window=long
     )
 
-
-    backtest_strategy(test_data)
+    backtest_strategy(
+        test_data,
+        verbose=False
+    )
 
     print("\n====================")
     print("AI Strategy Testing")

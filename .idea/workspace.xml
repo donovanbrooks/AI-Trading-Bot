@@ -5,10 +5,14 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="eed7932f-09b5-4ff2-8e05-af4f2053086b" name="Changes" comment="Add AI walk forward trading evaluation">
-      <change afterPath="$PROJECT_DIR$/logs/trade_log.csv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/AI-Trading-Bot.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/AI-Trading-Bot.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/config.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ai_strategy/ai_trading_strategy.py" beforeDir="false" afterPath="$PROJECT_DIR$/ai_strategy/ai_trading_strategy.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backtests/backtest.py" beforeDir="false" afterPath="$PROJECT_DIR$/backtests/backtest.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/logs/trade_log.csv" beforeDir="false" afterPath="$PROJECT_DIR$/logs/trade_log.csv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/models/price_predictor.py" beforeDir="false" afterPath="$PROJECT_DIR$/models/price_predictor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/optimization/optimizer.py" beforeDir="false" afterPath="$PROJECT_DIR$/optimization/optimizer.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -111,7 +115,7 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1784238410461</updated>
-      <workItem from="1784238411476" duration="13718000" />
+      <workItem from="1784238411476" duration="19562000" />
     </task>
     <task id="LOCAL-00001" summary="Initial working stock data download">
       <option name="closed" value="true" />
@@ -232,7 +236,7 @@
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/AI_Trading_Bot$Main.coverage" NAME="Main Coverage Results" MODIFIED="1784238796006" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/AI_Trading_Bot$main.coverage" NAME="main Coverage Results" MODIFIED="1784321946243" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/AI_Trading_Bot$main.coverage" NAME="main Coverage Results" MODIFIED="1784338846197" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/AI_Trading_Bot$moving_average.coverage" NAME="moving_average Coverage Results" MODIFIED="1784240792092" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

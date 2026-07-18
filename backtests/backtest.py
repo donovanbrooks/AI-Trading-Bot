@@ -1,7 +1,15 @@
 import csv
 from datetime import datetime
+from config import ( INITIAL_BALANCE, STOP_LOSS, TAKE_PROFIT
+)
 
-def backtest_strategy(data, initial_balance=1000, stop_loss=0.05, take_profit=0.10):
+def backtest_strategy(
+    data,
+    initial_balance=INITIAL_BALANCE,
+    stop_loss=STOP_LOSS,
+    take_profit=TAKE_PROFIT,
+    verbose=True
+):
     balance = initial_balance
     shares = 0
 
@@ -26,7 +34,8 @@ def backtest_strategy(data, initial_balance=1000, stop_loss=0.05, take_profit=0.
                 price
             ])
 
-            print(f"BUY at {price:.2f}")
+            if verbose:
+                print(f"BUY at {price:.2f}")
 
 
         # Risk management while holding
@@ -46,7 +55,8 @@ def backtest_strategy(data, initial_balance=1000, stop_loss=0.05, take_profit=0.
                     price
                 ])
 
-                print(f"STOP LOSS at {price:.2f}")
+                if verbose:
+                    print(f"STOP LOSS at {price:.2f}")
 
 
             # Take profit
@@ -61,7 +71,8 @@ def backtest_strategy(data, initial_balance=1000, stop_loss=0.05, take_profit=0.
                     price
                 ])
 
-                print(f"TAKE PROFIT at {price:.2f}")
+                if verbose:
+                    print(f"TAKE PROFIT at {price:.2f}")
 
 
             # Normal sell signal
@@ -80,7 +91,8 @@ def backtest_strategy(data, initial_balance=1000, stop_loss=0.05, take_profit=0.
                     price
                 ])
 
-                print(f"SELL at {price:.2f}")
+                if verbose:
+                    print(f"SELL at {price:.2f}")
 
 
     # Close remaining position
@@ -97,7 +109,8 @@ def backtest_strategy(data, initial_balance=1000, stop_loss=0.05, take_profit=0.
             final_price
         ])
 
-        print(f"FINAL SELL at {final_price:.2f}")
+        if verbose:
+            print(f"FINAL SELL at {final_price:.2f}")
 
     # Save trade history to CSV
     with open("logs/trade_log.csv", "w", newline="") as file:
@@ -120,18 +133,18 @@ def backtest_strategy(data, initial_balance=1000, stop_loss=0.05, take_profit=0.
     if total_trades > 0:
         win_rate = (wins / total_trades) * 100
 
-
-    print("\n--------------------")
-    print("Risk Managed Performance Report")
-    print("--------------------")
-    print(f"Starting Balance: ${initial_balance:.2f}")
-    print(f"Ending Balance: ${balance:.2f}")
-    print(f"Profit/Loss: ${profit:.2f}")
-    print(f"Return: {percent_return:.2f}%")
-    print(f"Trades: {total_trades}")
-    print(f"Winning Trades: {wins}")
-    print(f"Losing Trades: {losses}")
-    print(f"Win Rate: {win_rate:.2f}%")
+    if verbose:
+        print("\n--------------------")
+        print("Risk Managed Performance Report")
+        print("--------------------")
+        print(f"Starting Balance: ${initial_balance:.2f}")
+        print(f"Ending Balance: ${balance:.2f}")
+        print(f"Profit/Loss: ${profit:.2f}")
+        print(f"Return: {percent_return:.2f}%")
+        print(f"Trades: {total_trades}")
+        print(f"Winning Trades: {wins}")
+        print(f"Losing Trades: {losses}")
+        print(f"Win Rate: {win_rate:.2f}%")
 
     return balance
 
@@ -156,3 +169,5 @@ def buy_and_hold(data, initial_balance=1000):
     print(f"Return: {percent_return:.2f}%")
 
     return final_balance
+
+

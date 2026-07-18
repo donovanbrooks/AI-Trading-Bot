@@ -25,8 +25,10 @@ def optimize_strategy(data):
 
             final_balance = backtest_strategy(
                 test_data,
-                initial_balance=1000
+                initial_balance=1000,
+                verbose=False
             )
+
 
             profit = final_balance - 1000
 
