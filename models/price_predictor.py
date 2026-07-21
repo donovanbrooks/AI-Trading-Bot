@@ -1,8 +1,19 @@
 import pandas as pd
 
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import (
+    RandomForestClassifier,
+    GradientBoostingClassifier,
+    ExtraTreesClassifier,
+    VotingClassifier
+)
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score
+)
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
+
 
 def create_features(data):
 
@@ -15,6 +26,11 @@ def create_features(data):
     df["MA_10"] = df["Close"].rolling(window=10).mean()
 
     df["MA_20"] = df["Close"].rolling(window=20).mean()
+
+    # Exponential Moving Averages
+    df["EMA_10"] = df["Close"].ewm(span=10, adjust=False).mean()
+
+    df["EMA_20"] = df["Close"].ewm(span=20, adjust=False).mean()
 
     df["Volume_Change"] = df["Volume"].pct_change()
 
@@ -56,12 +72,14 @@ def train_price_model(data):
 
     features = [
         "Return",
+        "Momentum",
         "MA_10",
         "MA_20",
+        "EMA_10",
+        "EMA_20",
         "Volume_Change",
         "Volatility",
-        "RSI",
-        "Momentum"
+        "RSI"
     ]
 
 
@@ -83,9 +101,27 @@ def train_price_model(data):
 
     from config import RANDOM_FOREST_TREES, RANDOM_SEED
 
-    model = RandomForestClassifier(
-        n_estimators=RANDOM_FOREST_TREES,
-        random_state=RANDOM_SEED
+    rf = RandomForestClassifier(
+        n_estimators=200,
+        random_state=42
+    )
+
+    gb = GradientBoostingClassifier(
+        random_state=42
+    )
+
+    et = ExtraTreesClassifier(
+        n_estimators=200,
+        random_state=42
+    )
+
+    model = VotingClassifier(
+        estimators=[
+            ("rf", rf),
+            ("gb", gb),
+            ("et", et)
+        ],
+        voting="soft"
     )
 
     model.fit(
@@ -103,11 +139,17 @@ def train_price_model(data):
         predictions
     )
 
+    precision = precision_score(y_test, predictions)
+    recall = recall_score(y_test, predictions)
+    f1 = f1_score(y_test, predictions)
 
     print("\n--------------------")
     print("AI Price Prediction Model")
     print("--------------------")
-    print(f"Accuracy: {accuracy:.2%}")
+    print(f"Accuracy : {accuracy:.2%}")
+    print(f"Precision: {precision:.2%}")
+    print(f"Recall   : {recall:.2%}")
+    print(f"F1 Score : {f1:.2%}")
 
 
     return model
@@ -119,15 +161,19 @@ def predict_price_movement(model, data):
 
     features = [
         "Return",
+        "Momentum",
         "MA_10",
         "MA_20",
+        "EMA_10",
+        "EMA_20",
         "Volume_Change",
         "Volatility",
-        "RSI",
-        "Momentum"
+        "RSI"
     ]
 
     probabilities = model.predict_proba(df[features])
+
+    df["Probability_Up"] = probabilities[:, 1]
 
     df["Probability_Up"] = probabilities[:, 1]
 

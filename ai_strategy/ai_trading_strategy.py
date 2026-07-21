@@ -20,7 +20,7 @@ def ai_strategy(train_data, test_data):
         (df["Close"] > df["MA_10"]) &
         (df["RSI"] < 70) &
         (df["Momentum"] > 0),
-        "Signal"
+        "AI_Signal"
     ] = 1
 
     # AI + Moving Average Confirmation SELL

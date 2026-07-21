@@ -17,16 +17,9 @@ def ensemble_strategy(data):
 
     df["Signal"] = 0
 
-    df.loc[
-        df["Ensemble_Score"] >= 2,
-        "Signal"
-    ] = 1
+    df.loc[df["Ensemble_Score"] >= 1, "Signal"] = 1
 
-
-    df.loc[
-        df["Ensemble_Score"] <= -2,
-        "Signal"
-    ] = -1
+    df.loc[df["Ensemble_Score"] <= -1, "Signal"] = -1
 
 
     return df
