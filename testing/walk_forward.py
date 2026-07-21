@@ -42,6 +42,8 @@ def walk_forward_test(data):
 
     test_data["AI_Signal"] = ai_test_data["AI_Signal"]
 
+    test_data["Probability_Up"] = ai_test_data["Probability_Up"]
+
     print(test_data[["MA_Signal", "AI_Signal"]].tail())
 
     print(test_data.columns)
