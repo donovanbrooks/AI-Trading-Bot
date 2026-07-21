@@ -102,16 +102,25 @@ def train_price_model(data):
     from config import RANDOM_FOREST_TREES, RANDOM_SEED
 
     rf = RandomForestClassifier(
-        n_estimators=200,
+        n_estimators=300,
+        max_depth=8,
+        min_samples_split=10,
+        min_samples_leaf=5,
         random_state=42
     )
 
     gb = GradientBoostingClassifier(
+        n_estimators=200,
+        learning_rate=0.05,
+        max_depth=3,
         random_state=42
     )
 
     et = ExtraTreesClassifier(
-        n_estimators=200,
+        n_estimators=300,
+        max_depth=8,
+        min_samples_split=10,
+        min_samples_leaf=5,
         random_state=42
     )
 
