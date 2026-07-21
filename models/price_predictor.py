@@ -6,13 +6,18 @@ from sklearn.ensemble import (
     ExtraTreesClassifier,
     VotingClassifier
 )
+
 from sklearn.metrics import (
     accuracy_score,
     precision_score,
     recall_score,
     f1_score
 )
-from sklearn.model_selection import train_test_split
+
+from sklearn.model_selection import (
+    train_test_split,
+    RandomizedSearchCV
+)
 
 
 def create_features(data):
@@ -31,6 +36,8 @@ def create_features(data):
     df["EMA_10"] = df["Close"].ewm(span=10, adjust=False).mean()
 
     df["EMA_20"] = df["Close"].ewm(span=20, adjust=False).mean()
+
+    
 
     df["Volume_Change"] = df["Volume"].pct_change()
 
@@ -109,6 +116,23 @@ def train_price_model(data):
         random_state=42
     )
 
+    rf_params = {
+        "n_estimators": [100, 200, 300, 500],
+        "max_depth": [5, 8, 10, None],
+        "min_samples_split": [2, 5, 10],
+        "min_samples_leaf": [1, 2, 5]
+    }
+
+    rf_search = RandomizedSearchCV(
+        estimator=rf,
+        param_distributions=rf_params,
+        n_iter=20,
+        cv=5,
+        scoring="f1",
+        random_state=42,
+        n_jobs=-1
+    )
+
     gb = GradientBoostingClassifier(
         n_estimators=200,
         learning_rate=0.05,
@@ -123,6 +147,13 @@ def train_price_model(data):
         min_samples_leaf=5,
         random_state=42
     )
+
+    rf_search.fit(X_train, y_train)
+
+    print("\nBest Random Forest Parameters:")
+    print(rf_search.best_params_)
+
+    rf = rf_search.best_estimator_
 
     model = VotingClassifier(
         estimators=[
@@ -183,11 +214,7 @@ def predict_price_movement(model, data):
     probabilities = model.predict_proba(df[features])
 
     df["Probability_Up"] = probabilities[:, 1]
-
-    df["Probability_Up"] = probabilities[:, 1]
-
     df["Confidence"] = probabilities.max(axis=1)
-
     df["Prediction"] = model.predict(df[features])
 
     return df

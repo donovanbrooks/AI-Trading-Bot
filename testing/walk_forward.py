@@ -3,6 +3,7 @@ from strategy.moving_average import moving_average_strategy
 from backtests.backtest import backtest_strategy
 from ai_strategy.ai_trading_strategy import ai_strategy
 from strategy.ensemble_strategy import ensemble_strategy
+from models.price_predictor import create_features
 
 
 def walk_forward_test(data):
@@ -47,6 +48,8 @@ def walk_forward_test(data):
     print(test_data[["MA_Signal", "AI_Signal"]].tail())
 
     print(test_data.columns)
+
+    test_data = create_features(test_data)
 
     ensemble_data = ensemble_strategy(test_data)
 
