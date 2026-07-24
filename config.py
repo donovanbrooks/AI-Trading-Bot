@@ -2,8 +2,15 @@
 
 INITIAL_BALANCE = 1000
 
-STOP_LOSS = 0.05
-TAKE_PROFIT = 0.10
+# Risk Management
+USE_ATR = True
+
+ATR_PERIOD = 14
+ATR_STOP_MULTIPLIER = 2
+ATR_TARGET_MULTIPLIER = 3
+
+# Position sizing
+RISK_PER_TRADE = 0.02
 
 # Moving Average Settings
 
@@ -12,8 +19,8 @@ LONG_MA = 20
 
 # AI Confidence Thresholds
 
-BUY_THRESHOLD = 0.70
-SELL_THRESHOLD = 0.30
+BUY_THRESHOLD = 0.52
+SELL_THRESHOLD = 0.48
 
 # Machine Learning
 

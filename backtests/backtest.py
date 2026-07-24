@@ -1,13 +1,14 @@
 import csv
 from datetime import datetime
-from config import ( INITIAL_BALANCE, STOP_LOSS, TAKE_PROFIT
+from config import (
+    INITIAL_BALANCE,
+    ATR_STOP_MULTIPLIER,
+    ATR_TARGET_MULTIPLIER
 )
 
-def backtest_strategy(
+def risk_managed_backtest(
     data,
     initial_balance=INITIAL_BALANCE,
-    stop_loss=STOP_LOSS,
-    take_profit=TAKE_PROFIT,
     verbose=True
 ):
     balance = initial_balance
@@ -16,6 +17,8 @@ def backtest_strategy(
     wins = 0
     losses = 0
     buy_price = 0
+    stop_price = None
+    target_price = None
     trade_history = []
 
     for index, row in data.iterrows():
@@ -24,9 +27,15 @@ def backtest_strategy(
 
         # Buy
         if row["Signal"] == 1 and shares == 0:
+
             shares = balance / price
             balance = 0
+
             buy_price = price
+            buy_atr = row["ATR"]
+
+            stop_price = buy_price - (buy_atr * ATR_STOP_MULTIPLIER)
+            target_price = buy_price + (buy_atr * ATR_TARGET_MULTIPLIER)
 
             trade_history.append([
                 index,
@@ -41,12 +50,13 @@ def backtest_strategy(
         # Risk management while holding
         elif shares > 0:
 
-            change = (price - buy_price) / buy_price
+            # ATR Stop Loss
+            if stop_price is not None and price <= stop_price:
 
-            # Stop loss
-            if change <= -stop_loss:
                 balance = shares * price
                 shares = 0
+                stop_price = None
+                target_price = None
                 losses += 1
 
                 trade_history.append([
@@ -59,10 +69,13 @@ def backtest_strategy(
                     print(f"STOP LOSS at {price:.2f}")
 
 
-            # Take profit
-            elif change >= take_profit:
+            # ATR Take Profit
+            elif target_price is not None and price >= target_price:
+
                 balance = shares * price
                 shares = 0
+                stop_price = None
+                target_price = None
                 wins += 1
 
                 trade_history.append([
@@ -79,6 +92,8 @@ def backtest_strategy(
             elif row["Signal"] == -1:
                 balance = shares * price
                 shares = 0
+                stop_price = None
+                target_price = None
 
                 if price > buy_price:
                     wins += 1
@@ -102,6 +117,8 @@ def backtest_strategy(
 
         balance = shares * final_price
         shares = 0
+        stop_price = None
+        target_price = None
 
         if final_price > buy_price:
             wins += 1
@@ -151,7 +168,13 @@ def backtest_strategy(
         print(f"Losing Trades: {losses}")
         print(f"Win Rate: {win_rate:.2f}%")
 
-    return balance
+    return {
+        "Ending Balance": balance,
+        "Profit": profit,
+        "Return": percent_return,
+        "Trades": total_trades,
+        "Win Rate": win_rate
+    }
 
 
 def buy_and_hold(data, initial_balance=1000):
@@ -175,4 +198,4 @@ def buy_and_hold(data, initial_balance=1000):
 
     return final_balance
 
-
+backtest_strategy = risk_managed_backtest

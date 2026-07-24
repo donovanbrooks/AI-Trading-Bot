@@ -14,7 +14,8 @@ def analyze_trades(file_path="logs/trade_log.csv"):
         if trade["Action"] == "BUY":
             buy_price = trade["Price"]
 
-        elif buy_price is not None and trade["Action"] != "FINAL SELL":
+
+        elif buy_price is not None:
             sell_price = trade["Price"]
 
             percent_change = (
@@ -52,3 +53,11 @@ def analyze_trades(file_path="logs/trade_log.csv"):
 
     if losses:
         print(f"Average Loss: {sum(losses)/len(losses):.2f}%")
+
+    return {
+        "Total Trades": len(completed_trades),
+        "Average Trade": sum(completed_trades) / len(completed_trades),
+        "Best Trade": max(completed_trades),
+        "Worst Trade": min(completed_trades),
+        "Win Rate": (len(wins) / len(completed_trades)) * 100
+    }

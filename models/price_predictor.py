@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 
 from sklearn.ensemble import (
     RandomForestClassifier,
@@ -24,38 +25,87 @@ def create_features(data):
 
     df = data.copy()
 
+    # Returns
     df["Return"] = df["Close"].pct_change()
+    df["Return_5"] = df["Close"].pct_change(5)
+    df["Return_10"] = df["Close"].pct_change(10)
+    df["Return_20"] = df["Close"].pct_change(20)
 
-    df["Momentum"] = df["Close"].pct_change(periods=5)
+    # Momentum
+    df["Momentum"] = df["Close"].pct_change(5)
 
-    df["MA_10"] = df["Close"].rolling(window=10).mean()
+    # Moving averages
+    df["MA_10"] = df["Close"].rolling(10).mean()
+    df["MA_20"] = df["Close"].rolling(20).mean()
 
-    df["MA_20"] = df["Close"].rolling(window=20).mean()
-
-    # Exponential Moving Averages
+    # Exponential moving averages
     df["EMA_10"] = df["Close"].ewm(span=10, adjust=False).mean()
-
     df["EMA_20"] = df["Close"].ewm(span=20, adjust=False).mean()
 
-    
+    # ---------------- MACD ----------------
+    ema12 = df["Close"].ewm(span=12, adjust=False).mean()
+    ema26 = df["Close"].ewm(span=26, adjust=False).mean()
 
-    df["Volume_Change"] = df["Volume"].pct_change()
+    df["MACD"] = ema12 - ema26
+    df["MACD_Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
 
-    # Volatility (10-day rolling standard deviation)
-    df["Volatility"] = df["Return"].rolling(window=10).std()
+    # ---------------- Bollinger Bands ----------------
+    rolling_std = df["Close"].rolling(20).std()
 
-    # RSI
+    df["BB_Upper"] = df["MA_20"] + 2 * rolling_std
+    df["BB_Lower"] = df["MA_20"] - 2 * rolling_std
+    df["BB_Width"] = (
+        df["BB_Upper"] - df["BB_Lower"]
+    ) / df["MA_20"]
+
+    # ---------------- RSI ----------------
     delta = df["Close"].diff()
 
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
 
-    avg_gain = gain.rolling(window=14).mean()
-    avg_loss = loss.rolling(window=14).mean()
+    avg_gain = gain.rolling(14).mean()
+    avg_loss = loss.rolling(14).mean()
 
     rs = avg_gain / avg_loss
 
     df["RSI"] = 100 - (100 / (1 + rs))
+
+    # ---------------- Stochastic RSI ----------------
+    rsi_min = df["RSI"].rolling(14).min()
+    rsi_max = df["RSI"].rolling(14).max()
+
+    df["Stoch_RSI"] = (
+        (df["RSI"] - rsi_min) /
+        (rsi_max - rsi_min)
+    )
+
+    # ---------------- ATR ----------------
+    high_low = df["High"] - df["Low"]
+
+    high_close = (
+        df["High"] - df["Close"].shift()
+    ).abs()
+
+    low_close = (
+        df["Low"] - df["Close"].shift()
+    ).abs()
+
+    tr = pd.concat(
+        [high_low, high_close, low_close],
+        axis=1
+    ).max(axis=1)
+
+    df["ATR"] = tr.rolling(14).mean()
+
+    # ---------------- Other ----------------
+    df["Volume_Change"] = df["Volume"].pct_change()
+
+    df["Volatility"] = (
+        df["Return"]
+        .rolling(10)
+        .std()
+    )
 
     return df
 
@@ -78,15 +128,28 @@ def train_price_model(data):
     df = df.dropna()
 
     features = [
-        "Return",
-        "Momentum",
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "Volume",
         "MA_10",
         "MA_20",
         "EMA_10",
         "EMA_20",
-        "Volume_Change",
+        "RSI",
+        "MACD",
+        "MACD_Signal",
+        "BB_Upper",
+        "BB_Lower",
+        "BB_Width",
+        "Stoch_RSI",
+        "Return_5",
+        "Return_10",
+        "Return_20",
+        "Momentum",
         "Volatility",
-        "RSI"
+        "ATR"
     ]
 
 
@@ -113,6 +176,7 @@ def train_price_model(data):
         max_depth=8,
         min_samples_split=10,
         min_samples_leaf=5,
+        class_weight="balanced",
         random_state=42
     )
 
@@ -145,6 +209,7 @@ def train_price_model(data):
         max_depth=8,
         min_samples_split=10,
         min_samples_leaf=5,
+        class_weight="balanced",
         random_state=42
     )
 
@@ -193,6 +258,7 @@ def train_price_model(data):
 
 
     return model
+
 def predict_price_movement(model, data):
 
     df = create_features(data)
@@ -200,17 +266,38 @@ def predict_price_movement(model, data):
     df = df.dropna()
 
     features = [
-        "Return",
-        "Momentum",
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "Volume",
         "MA_10",
         "MA_20",
         "EMA_10",
         "EMA_20",
-        "Volume_Change",
+        "RSI",
+        "MACD",
+        "MACD_Signal",
+        "BB_Upper",
+        "BB_Lower",
+        "BB_Width",
+        "Stoch_RSI",
+        "Return_5",
+        "Return_10",
+        "Return_20",
+        "Momentum",
         "Volatility",
-        "RSI"
+        "ATR"
     ]
 
+    print(df.columns.tolist())
+
+    missing = [col for col in features if col not in df.columns]
+
+    if missing:
+        print("Missing columns:", missing)
+        raise ValueError("Feature engineering is incomplete.")
+    
     probabilities = model.predict_proba(df[features])
 
     df["Probability_Up"] = probabilities[:, 1]

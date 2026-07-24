@@ -41,9 +41,13 @@ def walk_forward_test(data):
         test_data
     )
 
+    print(test_data.columns)
+
     test_data["AI_Signal"] = ai_test_data["AI_Signal"]
 
     test_data["Probability_Up"] = ai_test_data["Probability_Up"]
+
+    test_data["Prediction"] = ai_test_data["Prediction"]
 
     print(test_data[["MA_Signal", "AI_Signal"]].tail())
 
@@ -71,3 +75,16 @@ def walk_forward_test(data):
     print("====================")
 
     backtest_strategy(ensemble_data)
+
+    print(test_data.columns.tolist())
+
+    print("Before create_features:", test_data.columns.tolist())
+
+    test_data = create_features(test_data)
+
+    print("After create_features:", test_data.columns.tolist())
+
+    print("Before ensemble:")
+    print(test_data.columns.tolist())
+
+    ensemble_data = ensemble_strategy(test_data)
