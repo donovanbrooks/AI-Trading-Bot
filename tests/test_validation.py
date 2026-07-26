@@ -1,6 +1,9 @@
 import pandas as pd
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from ai_validation import generate_ai_signals
+from storage import list_recent_runs, save_backtest_run
+from strategy.ai_validation import generate_ai_signals
 from validation import BacktestConfig, calculate_metrics, run_backtest, walk_forward_validate
 
 
@@ -46,3 +49,19 @@ def test_ai_signal_generation_does_not_fill_before_training_period():
 
     assert signals["AI Probability"].iloc[:100].isna().all()
     assert signals["AI Probability"].notna().any()
+
+
+def test_saved_backtest_persists_run_and_trades():
+    data = price_data(10)
+    data["Execution Signal"] = [0, 1] + [0] * 8
+    results, trades = run_backtest(data, BacktestConfig(initial_cash=1_000))
+    metrics = calculate_metrics(results, trades, 1_000)
+
+    with TemporaryDirectory() as directory:
+        database = Path(directory) / "trading_bot.db"
+        run_id = save_backtest_run("TEST", "Test", {}, 1_000, 5, metrics, trades, database)
+        saved_runs = list_recent_runs(database_path=database)
+
+    assert run_id == 1
+    assert saved_runs.iloc[0]["Ticker"] == "TEST"
+    assert saved_runs.iloc[0]["Trades"] == len(trades)

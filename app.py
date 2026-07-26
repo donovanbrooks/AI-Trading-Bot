@@ -11,7 +11,8 @@ import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
 
-from ai_validation import generate_ai_signals
+from storage import list_recent_runs, save_backtest_run
+from strategy.ai_validation import generate_ai_signals
 from validation import BacktestConfig, build_crossover_signals, calculate_metrics, run_backtest, walk_forward_validate
 
 
@@ -127,6 +128,34 @@ else:
         use_container_width=True,
         hide_index=True,
     )
+
+st.subheader("Save this backtest")
+parameters = {
+    "history": period,
+    "short_window": int(short_window),
+    "long_window": int(long_window),
+    "training_bars": int(train_bars),
+    "test_bars": int(test_bars),
+    "ai_confidence_threshold": ai_threshold if strategy_type == "AI direction model" else None,
+}
+if st.button("Save current backtest", type="primary"):
+    run_id = save_backtest_run(
+        ticker=ticker,
+        strategy=strategy_type,
+        parameters=parameters,
+        initial_cash=initial_cash,
+        cost_bps=fee_bps,
+        metrics=metrics,
+        trades=trades,
+    )
+    st.success(f"Saved backtest #{run_id} and {len(trades)} completed paper trades locally.")
+
+with st.expander("Recent saved backtests"):
+    saved_runs = list_recent_runs()
+    if saved_runs.empty:
+        st.info("No saved backtests yet.")
+    else:
+        st.dataframe(saved_runs, use_container_width=True, hide_index=True)
 
 st.subheader("Walk-forward validation")
 if strategy_type == "AI direction model":
