@@ -11,6 +11,8 @@ import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
 
+from validation import BacktestConfig, build_crossover_signals, calculate_metrics, run_backtest, walk_forward_validate
+
 
 st.set_page_config(page_title="Trading Bot Lab", page_icon="📈", layout="wide")
 
@@ -24,45 +26,6 @@ def load_prices(ticker: str, period: str) -> pd.DataFrame:
     return data.dropna().copy()
 
 
-def build_signals(data: pd.DataFrame, short_window: int, long_window: int) -> pd.DataFrame:
-    """Generate a crossover signal at close, then execute it next session."""
-    result = data.copy()
-    result["Short MA"] = result["Close"].rolling(short_window).mean()
-    result["Long MA"] = result["Close"].rolling(long_window).mean()
-    regime = (result["Short MA"] > result["Long MA"]).astype(int)
-    result["Signal"] = regime.diff().fillna(0).clip(-1, 1)
-    # A signal is only known once the bar closes.  Executing it tomorrow
-    # avoids using information that was unavailable at today's open.
-    result["Execution Signal"] = result["Signal"].shift(1).fillna(0)
-    return result
-
-
-def run_backtest(data: pd.DataFrame, initial_cash: float, fee_rate: float) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Long-only backtest using next-session opens and proportional fees."""
-    cash, shares = initial_cash, 0.0
-    trades: list[dict[str, object]] = []
-    equity: list[float] = []
-
-    for timestamp, row in data.iterrows():
-        open_price = float(row["Open"])
-        signal = int(row["Execution Signal"])
-        if signal == 1 and shares == 0:
-            shares = cash / (open_price * (1 + fee_rate))
-            cost = shares * open_price * (1 + fee_rate)
-            cash -= cost
-            trades.append({"Date": timestamp, "Side": "BUY", "Price": open_price, "Shares": shares})
-        elif signal == -1 and shares > 0:
-            proceeds = shares * open_price * (1 - fee_rate)
-            cash += proceeds
-            trades.append({"Date": timestamp, "Side": "SELL", "Price": open_price, "Shares": shares})
-            shares = 0.0
-        equity.append(cash + shares * float(row["Close"]))
-
-    result = data.copy()
-    result["Equity"] = equity
-    return result, pd.DataFrame(trades)
-
-
 st.title("Trading Bot Lab")
 st.caption("Research dashboard — backtesting only. It does not place real trades.")
 
@@ -74,6 +37,10 @@ with st.sidebar:
     long_window = st.number_input("Long moving average", min_value=3, max_value=300, value=50)
     initial_cash = st.number_input("Starting cash ($)", min_value=100.0, value=10_000.0, step=100.0)
     fee_bps = st.number_input("Estimated fee + slippage (basis points)", min_value=0.0, value=5.0, step=1.0)
+    st.divider()
+    st.caption("Walk-forward validation")
+    train_bars = st.number_input("Training history (trading days)", min_value=60, value=252, step=21)
+    test_bars = st.number_input("Out-of-sample window (trading days)", min_value=10, value=63, step=21)
 
 if short_window >= long_window:
     st.error("The short moving average must be smaller than the long moving average.")
@@ -90,28 +57,48 @@ if prices.empty or len(prices) < long_window + 2:
     st.error("Not enough price history for those settings. Choose a longer history or shorter windows.")
     st.stop()
 
-signals = build_signals(prices, int(short_window), int(long_window))
-results, trades = run_backtest(signals, initial_cash, fee_bps / 10_000)
-final_value = float(results["Equity"].iloc[-1])
-strategy_return = final_value / initial_cash - 1
+config = BacktestConfig(initial_cash=initial_cash, trading_cost_bps=fee_bps)
+signals = build_crossover_signals(prices, int(short_window), int(long_window))
+results, trades = run_backtest(signals, config)
+metrics = calculate_metrics(results, trades, initial_cash)
+final_value = float(metrics["final_value"])
+strategy_return = float(metrics["total_return"])
 buy_hold_return = float(results["Close"].iloc[-1] / results["Close"].iloc[0] - 1)
-drawdown = results["Equity"] / results["Equity"].cummax() - 1
 
 one, two, three, four = st.columns(4)
 one.metric("Portfolio value", f"${final_value:,.2f}")
 two.metric("Strategy return", f"{strategy_return:.2%}")
 three.metric("Buy & hold", f"{buy_hold_return:.2%}")
-four.metric("Maximum drawdown", f"{drawdown.min():.2%}")
+four.metric("Maximum drawdown", f"{metrics['max_drawdown']:.2%}")
+
+st.caption(
+    f"{metrics['trade_count']} completed trades · {metrics['win_rate']:.0%} win rate · "
+    f"{metrics['exposure']:.0%} market exposure · Sharpe {metrics['sharpe_ratio']:.2f}"
+)
 
 price_chart = go.Figure()
 price_chart.add_trace(go.Scatter(x=results.index, y=results["Close"], name="Close", line={"color": "#9ec5fe"}))
 price_chart.add_trace(go.Scatter(x=results.index, y=results["Short MA"], name=f"MA {short_window}"))
 price_chart.add_trace(go.Scatter(x=results.index, y=results["Long MA"], name=f"MA {long_window}"))
 if not trades.empty:
-    buys = trades[trades["Side"] == "BUY"]
-    sells = trades[trades["Side"] == "SELL"]
-    price_chart.add_trace(go.Scatter(x=buys["Date"], y=buys["Price"], mode="markers", name="Buy", marker={"color": "#2ecc71", "symbol": "triangle-up", "size": 11}))
-    price_chart.add_trace(go.Scatter(x=sells["Date"], y=sells["Price"], mode="markers", name="Sell", marker={"color": "#e74c3c", "symbol": "triangle-down", "size": 11}))
+    price_chart.add_trace(
+        go.Scatter(
+            x=trades["Entry Date"],
+            y=trades["Entry Price"],
+            mode="markers",
+            name="Buy",
+            marker={"color": "#2ecc71", "symbol": "triangle-up", "size": 11},
+        )
+    )
+    price_chart.add_trace(
+        go.Scatter(
+            x=trades["Exit Date"],
+            y=trades["Exit Price"],
+            mode="markers",
+            name="Sell",
+            marker={"color": "#e74c3c", "symbol": "triangle-down", "size": 11},
+        )
+    )
 price_chart.update_layout(title=f"{ticker} strategy", height=480, xaxis_title="Date", yaxis_title="Price ($)")
 st.plotly_chart(price_chart, use_container_width=True)
 
@@ -119,11 +106,34 @@ equity_chart = go.Figure(go.Scatter(x=results.index, y=results["Equity"], name="
 equity_chart.update_layout(title="Equity curve", height=300, xaxis_title="Date", yaxis_title="Value ($)")
 st.plotly_chart(equity_chart, use_container_width=True)
 
-st.subheader("Paper-trading activity")
+st.subheader("Completed paper trades")
 if trades.empty:
     st.info("No crossover trades occurred for these settings.")
 else:
-    st.dataframe(trades.assign(Date=lambda frame: frame["Date"].dt.date), use_container_width=True, hide_index=True)
+    st.dataframe(
+        trades.assign(**{"Entry Date": lambda frame: frame["Entry Date"].dt.date, "Exit Date": lambda frame: frame["Exit Date"].dt.date}),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+st.subheader("Walk-forward validation")
+if len(prices) <= int(train_bars) + 1:
+    st.info("Choose a longer price history or a smaller training history to see out-of-sample windows.")
+else:
+    walk_forward = walk_forward_validate(
+        prices,
+        int(short_window),
+        int(long_window),
+        config,
+        train_bars=int(train_bars),
+        test_bars=int(test_bars),
+    )
+    if walk_forward.empty:
+        st.info("No complete out-of-sample windows were available.")
+    else:
+        st.caption("Each row starts after its training history. Parameters are fixed, not optimized on future test periods.")
+        st.dataframe(walk_forward, use_container_width=True, hide_index=True)
+        st.metric("Median out-of-sample return", f"{walk_forward['OOS Return'].median():.2%}")
 
 with st.expander("Important limits before live trading"):
     st.markdown("""

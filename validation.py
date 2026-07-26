@@ -1,0 +1,166 @@
+"""Backtesting and walk-forward validation utilities.
+
+These functions are deliberately broker-agnostic.  They model a long-only
+daily strategy: decisions are made at a day's close and filled at the next
+session's open, with an estimated proportional trading cost.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+import pandas as pd
+
+
+TRADING_DAYS_PER_YEAR = 252
+
+
+@dataclass(frozen=True)
+class BacktestConfig:
+    initial_cash: float = 10_000.0
+    trading_cost_bps: float = 5.0
+
+    @property
+    def cost_rate(self) -> float:
+        return self.trading_cost_bps / 10_000
+
+
+def build_crossover_signals(data: pd.DataFrame, short_window: int, long_window: int) -> pd.DataFrame:
+    """Build crossover signals and delay execution until the next open."""
+    if short_window >= long_window:
+        raise ValueError("short_window must be smaller than long_window")
+
+    result = data.copy()
+    result["Short MA"] = result["Close"].rolling(short_window).mean()
+    result["Long MA"] = result["Close"].rolling(long_window).mean()
+    regime = (result["Short MA"] > result["Long MA"]).astype(int)
+    result["Signal"] = regime.diff().fillna(0).clip(-1, 1).astype(int)
+    result["Execution Signal"] = result["Signal"].shift(1).fillna(0).astype(int)
+    return result
+
+
+def run_backtest(data: pd.DataFrame, config: BacktestConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Run a cost-aware long-only backtest against already-generated signals."""
+    required_columns = {"Open", "Close", "Execution Signal"}
+    missing = required_columns.difference(data.columns)
+    if missing:
+        raise ValueError(f"Missing required backtest columns: {sorted(missing)}")
+    if data.empty:
+        raise ValueError("Cannot backtest an empty dataframe")
+
+    cash, shares = config.initial_cash, 0.0
+    entry_price: float | None = None
+    entry_date: object | None = None
+    trades: list[dict[str, object]] = []
+    equity: list[float] = []
+    in_market: list[bool] = []
+
+    def sell(timestamp: object, price: float, reason: str) -> None:
+        nonlocal cash, shares, entry_price, entry_date
+        gross_proceeds = shares * price
+        fee = gross_proceeds * config.cost_rate
+        cash += gross_proceeds - fee
+        trade_return = ((price * (1 - config.cost_rate)) / (entry_price * (1 + config.cost_rate))) - 1
+        trades.append({
+            "Entry Date": entry_date,
+            "Exit Date": timestamp,
+            "Entry Price": entry_price,
+            "Exit Price": price,
+            "Shares": shares,
+            "Exit Reason": reason,
+            "Return": trade_return,
+            "Net P&L": (price * (1 - config.cost_rate) - entry_price * (1 + config.cost_rate)) * shares,
+        })
+        shares, entry_price, entry_date = 0.0, None, None
+
+    for timestamp, row in data.iterrows():
+        open_price = float(row["Open"])
+        signal = int(row["Execution Signal"])
+        if signal == 1 and shares == 0:
+            shares = cash / (open_price * (1 + config.cost_rate))
+            cash = 0.0
+            entry_price, entry_date = open_price, timestamp
+        elif signal == -1 and shares > 0:
+            sell(timestamp, open_price, "Signal")
+        equity.append(cash + shares * float(row["Close"]))
+        in_market.append(shares > 0)
+
+    if shares > 0:
+        final_timestamp = data.index[-1]
+        final_price = float(data.iloc[-1]["Close"])
+        sell(final_timestamp, final_price, "End of test")
+        equity[-1] = cash
+
+    result = data.copy()
+    result["Equity"] = equity
+    result["In Market"] = in_market
+    result["Drawdown"] = result["Equity"] / result["Equity"].cummax() - 1
+    return result, pd.DataFrame(trades)
+
+
+def calculate_metrics(results: pd.DataFrame, trades: pd.DataFrame, initial_cash: float) -> dict[str, float | int]:
+    """Calculate risk and trade metrics from a completed backtest."""
+    final_value = float(results["Equity"].iloc[-1])
+    daily_returns = results["Equity"].pct_change().dropna()
+    periods = max(len(results) - 1, 1)
+    years = periods / TRADING_DAYS_PER_YEAR
+    annualized_return = (final_value / initial_cash) ** (1 / years) - 1 if years > 0 else 0.0
+    annualized_volatility = float(daily_returns.std(ddof=0) * np.sqrt(TRADING_DAYS_PER_YEAR)) if not daily_returns.empty else 0.0
+    sharpe_ratio = (float(daily_returns.mean()) / float(daily_returns.std(ddof=0)) * np.sqrt(TRADING_DAYS_PER_YEAR)
+                    if len(daily_returns) > 1 and daily_returns.std(ddof=0) > 0 else 0.0)
+    win_rate = float((trades["Return"] > 0).mean()) if not trades.empty else 0.0
+    gross_wins = float(trades.loc[trades["Net P&L"] > 0, "Net P&L"].sum()) if not trades.empty else 0.0
+    gross_losses = float(-trades.loc[trades["Net P&L"] < 0, "Net P&L"].sum()) if not trades.empty else 0.0
+    profit_factor = gross_wins / gross_losses if gross_losses else np.nan
+    exposure = float(results["In Market"].mean())
+
+    return {
+        "final_value": final_value,
+        "total_return": final_value / initial_cash - 1,
+        "annualized_return": annualized_return,
+        "annualized_volatility": annualized_volatility,
+        "sharpe_ratio": sharpe_ratio,
+        "max_drawdown": float(results["Drawdown"].min()),
+        "trade_count": int(len(trades)),
+        "win_rate": win_rate,
+        "profit_factor": profit_factor,
+        "exposure": exposure,
+    }
+
+
+def walk_forward_validate(
+    data: pd.DataFrame,
+    short_window: int,
+    long_window: int,
+    config: BacktestConfig,
+    train_bars: int = 252,
+    test_bars: int = 63,
+) -> pd.DataFrame:
+    """Evaluate successive out-of-sample windows using only prior history.
+
+    The strategy parameters stay fixed; this measures their stability rather
+    than selecting the best settings after seeing future test periods.
+    """
+    if train_bars < long_window or test_bars < 2:
+        raise ValueError("train_bars must cover the long window and test_bars must be at least 2")
+
+    signals = build_crossover_signals(data, short_window, long_window)
+    reports: list[dict[str, object]] = []
+    for start in range(train_bars, len(signals) - 1, test_bars):
+        end = min(start + test_bars, len(signals))
+        test_data = signals.iloc[start:end].copy()
+        if len(test_data) < 2:
+            continue
+        results, trades = run_backtest(test_data, config)
+        metrics = calculate_metrics(results, trades, config.initial_cash)
+        reports.append({
+            "Train End": signals.index[start - 1],
+            "Test Start": test_data.index[0],
+            "Test End": test_data.index[-1],
+            "OOS Return": metrics["total_return"],
+            "Max Drawdown": metrics["max_drawdown"],
+            "Sharpe": metrics["sharpe_ratio"],
+            "Trades": metrics["trade_count"],
+        })
+    return pd.DataFrame(reports)
