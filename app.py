@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
 
+from broker import BrokerConfigurationError, MAX_PAPER_ORDER_NOTIONAL, get_paper_account_summary, submit_confirmed_paper_buy
 from storage import list_recent_runs, save_backtest_run
 from strategy.ai_validation import generate_ai_signals
 from validation import BacktestConfig, build_crossover_signals, calculate_metrics, run_backtest, walk_forward_validate
@@ -156,6 +157,42 @@ with st.expander("Recent saved backtests"):
         st.info("No saved backtests yet.")
     else:
         st.dataframe(saved_runs, use_container_width=True, hide_index=True)
+
+st.subheader("Alpaca paper account")
+st.caption("Connection check only. This app does not submit orders yet.")
+if st.button("Check paper account connection"):
+    try:
+        account = get_paper_account_summary()
+    except BrokerConfigurationError as error:
+        st.warning(str(error))
+    except Exception as error:
+        st.error(f"Alpaca connection failed: {error}")
+    else:
+        account_columns = st.columns(3)
+        account_columns[0].metric("Paper cash", f"${account['cash']:,.2f}")
+        account_columns[1].metric("Buying power", f"${account['buying_power']:,.2f}")
+        account_columns[2].metric("Paper equity", f"${account['equity']:,.2f}")
+        st.success(f"Connected to paper account {account['account_number']} ({account['status']}).")
+
+with st.expander("Manual paper buy"):
+    st.warning("This sends a real order to your Alpaca PAPER account. It cannot use real-money credentials.")
+    with st.form("manual_paper_buy", clear_on_submit=False):
+        paper_symbol = st.text_input("US stock symbol", value=ticker, max_chars=10).upper()
+        paper_notional = st.number_input("Dollar amount", min_value=1.0, max_value=MAX_PAPER_ORDER_NOTIONAL, value=5.0, step=1.0)
+        confirmation = st.checkbox(f"I confirm a paper-market buy of up to ${paper_notional:.2f} may be submitted.")
+        submit_paper_buy = st.form_submit_button("Submit paper buy")
+    if submit_paper_buy:
+        if not confirmation:
+            st.error("Check the confirmation box before submitting a paper order.")
+        else:
+            try:
+                order = submit_confirmed_paper_buy(paper_symbol, paper_notional)
+            except BrokerConfigurationError as error:
+                st.warning(str(error))
+            except Exception as error:
+                st.error(f"Paper order was not submitted: {error}")
+            else:
+                st.success(f"Paper order submitted: {order['symbol']} · {order['status']} · ID {order['id']}")
 
 st.subheader("Walk-forward validation")
 if strategy_type == "AI direction model":
