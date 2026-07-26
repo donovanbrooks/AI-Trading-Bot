@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
 
+from ai_validation import generate_ai_signals
 from validation import BacktestConfig, build_crossover_signals, calculate_metrics, run_backtest, walk_forward_validate
 
 
@@ -33,6 +34,7 @@ with st.sidebar:
     st.header("Backtest settings")
     ticker = st.text_input("Ticker", "SPY").upper().strip()
     period = st.selectbox("History", ["1y", "2y", "5y", "10y"], index=2)
+    strategy_type = st.radio("Strategy", ["Moving-average crossover", "AI direction model"])
     short_window = st.number_input("Short moving average", min_value=2, max_value=100, value=20)
     long_window = st.number_input("Long moving average", min_value=3, max_value=300, value=50)
     initial_cash = st.number_input("Starting cash ($)", min_value=100.0, value=10_000.0, step=100.0)
@@ -41,6 +43,7 @@ with st.sidebar:
     st.caption("Walk-forward validation")
     train_bars = st.number_input("Training history (trading days)", min_value=60, value=252, step=21)
     test_bars = st.number_input("Out-of-sample window (trading days)", min_value=10, value=63, step=21)
+    ai_threshold = st.slider("AI confidence threshold", min_value=0.51, max_value=0.75, value=0.55, step=0.01)
 
 if short_window >= long_window:
     st.error("The short moving average must be smaller than the long moving average.")
@@ -58,7 +61,15 @@ if prices.empty or len(prices) < long_window + 2:
     st.stop()
 
 config = BacktestConfig(initial_cash=initial_cash, trading_cost_bps=fee_bps)
-signals = build_crossover_signals(prices, int(short_window), int(long_window))
+if strategy_type == "AI direction model":
+    with st.spinner("Generating expanding-window AI predictions..."):
+        signals = generate_ai_signals(
+            prices,
+            train_bars=int(train_bars),
+            probability_threshold=ai_threshold,
+        )
+else:
+    signals = build_crossover_signals(prices, int(short_window), int(long_window))
 results, trades = run_backtest(signals, config)
 metrics = calculate_metrics(results, trades, initial_cash)
 final_value = float(metrics["final_value"])
@@ -78,8 +89,9 @@ st.caption(
 
 price_chart = go.Figure()
 price_chart.add_trace(go.Scatter(x=results.index, y=results["Close"], name="Close", line={"color": "#9ec5fe"}))
-price_chart.add_trace(go.Scatter(x=results.index, y=results["Short MA"], name=f"MA {short_window}"))
-price_chart.add_trace(go.Scatter(x=results.index, y=results["Long MA"], name=f"MA {long_window}"))
+if strategy_type == "Moving-average crossover":
+    price_chart.add_trace(go.Scatter(x=results.index, y=results["Short MA"], name=f"MA {short_window}"))
+    price_chart.add_trace(go.Scatter(x=results.index, y=results["Long MA"], name=f"MA {long_window}"))
 if not trades.empty:
     price_chart.add_trace(
         go.Scatter(
@@ -117,7 +129,9 @@ else:
     )
 
 st.subheader("Walk-forward validation")
-if len(prices) <= int(train_bars) + 1:
+if strategy_type == "AI direction model":
+    st.caption("AI predictions are generated in expanding windows: every prediction uses only earlier labeled data. The chart and metrics above are its out-of-sample evaluation.")
+elif len(prices) <= int(train_bars) + 1:
     st.info("Choose a longer price history or a smaller training history to see out-of-sample windows.")
 else:
     walk_forward = walk_forward_validate(

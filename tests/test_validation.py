@@ -1,6 +1,7 @@
 import pandas as pd
 
-from validation import BacktestConfig, build_crossover_signals, calculate_metrics, run_backtest, walk_forward_validate
+from ai_validation import generate_ai_signals
+from validation import BacktestConfig, calculate_metrics, run_backtest, walk_forward_validate
 
 
 def price_data(days=320):
@@ -34,3 +35,14 @@ def test_metrics_has_risk_fields():
     metrics = calculate_metrics(results, trades, 10_000)
 
     assert {"sharpe_ratio", "max_drawdown", "profit_factor"}.issubset(metrics)
+
+
+def test_ai_signal_generation_does_not_fill_before_training_period():
+    data = price_data(360)
+    # Alternating movement ensures both target classes are available to train.
+    data["Close"] = [100 + index + (2 if index % 2 else 0) for index in range(len(data))]
+    data["Open"] = data["Close"]
+    signals = generate_ai_signals(data, train_bars=100, retrain_bars=30)
+
+    assert signals["AI Probability"].iloc[:100].isna().all()
+    assert signals["AI Probability"].notna().any()
