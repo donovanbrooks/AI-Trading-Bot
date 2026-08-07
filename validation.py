@@ -23,6 +23,7 @@ class BacktestConfig:
     position_size_pct: float = 0.10
     max_trades_per_day: int | None = 3
     max_daily_loss_pct: float | None = 0.01
+    stop_loss_pct: float | None = 0.02
 
     @property
     def cost_rate(self) -> float:
@@ -59,6 +60,8 @@ def run_backtest(data: pd.DataFrame, config: BacktestConfig) -> tuple[pd.DataFra
         raise ValueError("max_trades_per_day must be at least 1")
     if config.max_daily_loss_pct is not None and not 0 < config.max_daily_loss_pct < 1:
         raise ValueError("max_daily_loss_pct must be between 0 and 1")
+    if config.stop_loss_pct is not None and not 0 < config.stop_loss_pct < 1:
+        raise ValueError("stop_loss_pct must be between 0 and 1")
 
     entry_price: float | None = None
     entry_date: object | None = None
@@ -103,7 +106,14 @@ def run_backtest(data: pd.DataFrame, config: BacktestConfig) -> tuple[pd.DataFra
             and equity_at_open <= day_start_equity * (1 - config.max_daily_loss_pct)
         )
         blocked_reason = ""
-        if signal == 1 and shares == 0:
+        stop_triggered = (
+            shares > 0
+            and config.stop_loss_pct is not None
+            and float(row["Low"]) <= entry_price * (1 - config.stop_loss_pct)
+        )
+        if stop_triggered:
+            sell(timestamp, entry_price * (1 - config.stop_loss_pct), "Stop loss")
+        elif signal == 1 and shares == 0:
             if config.max_trades_per_day is not None and day_trade_count >= config.max_trades_per_day:
                 blocked_reason = "Daily trade limit"
             elif daily_loss_limit_hit:

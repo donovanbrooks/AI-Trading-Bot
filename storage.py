@@ -52,7 +52,68 @@ def initialize_database(database_path: Path = DEFAULT_DATABASE_PATH) -> None:
                 return_pct REAL NOT NULL,
                 net_pnl REAL NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS paper_order_ledger (
+                broker_order_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                symbol TEXT NOT NULL,
+                asset_type TEXT NOT NULL,
+                notional REAL NOT NULL,
+                broker_status TEXT NOT NULL
+            );
             """
+        )
+
+
+def record_paper_order(
+    broker_order_id: str,
+    symbol: str,
+    asset_type: str,
+    notional: float,
+    broker_status: str,
+    database_path: Path = DEFAULT_DATABASE_PATH,
+) -> None:
+    """Persist a submitted paper order for duplicate protection and reconciliation."""
+    initialize_database(database_path)
+    with _connect(database_path) as connection:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO paper_order_ledger (
+                broker_order_id, symbol, asset_type, notional, broker_status
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (broker_order_id, symbol, asset_type, float(notional), broker_status),
+        )
+
+
+def recent_paper_order(symbol: str, minutes: int = 5, database_path: Path = DEFAULT_DATABASE_PATH) -> bool:
+    """Return true if the app recently submitted an order for this symbol."""
+    initialize_database(database_path)
+    with _connect(database_path) as connection:
+        row = connection.execute(
+            """
+            SELECT 1 FROM paper_order_ledger
+            WHERE symbol = ? AND created_at >= datetime('now', ?)
+            LIMIT 1
+            """,
+            (symbol, f"-{minutes} minutes"),
+        ).fetchone()
+    return row is not None
+
+
+def paper_order_ledger(database_path: Path = DEFAULT_DATABASE_PATH) -> pd.DataFrame:
+    """Return the most recent locally recorded paper-order submissions."""
+    initialize_database(database_path)
+    with _connect(database_path) as connection:
+        return pd.read_sql_query(
+            """
+            SELECT broker_order_id AS "Order ID", created_at AS "Recorded", symbol AS "Symbol",
+                   asset_type AS "Asset", notional AS "Notional", broker_status AS "Status"
+            FROM paper_order_ledger
+            ORDER BY created_at DESC
+            LIMIT 50
+            """,
+            connection,
         )
 
 

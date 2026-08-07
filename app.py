@@ -9,8 +9,8 @@ from __future__ import annotations
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-import yfinance as yf
 
+from auth import require_login
 from broker import (
     BrokerConfigurationError,
     MAX_PAPER_ORDER_NOTIONAL,
@@ -19,7 +19,10 @@ from broker import (
     submit_confirmed_paper_buy,
     submit_confirmed_paper_crypto_buy,
 )
-from storage import list_recent_runs, save_backtest_run
+from storage import list_recent_runs, paper_order_ledger, recent_paper_order, record_paper_order, save_backtest_run
+from logging_config import configure_logging
+from market_data import load_alpaca_bars
+from regime_analysis import regime_performance
 from strategy.ai_validation import generate_ai_signals
 from strategy.intraday_ai_validation import generate_intraday_ai_signals
 from strategy.crypto_ai_validation import generate_crypto_ai_signals
@@ -27,28 +30,24 @@ from validation import BacktestConfig, build_crossover_signals, calculate_metric
 
 
 st.set_page_config(page_title="Trading Bot Lab", page_icon="📈", layout="wide")
+logger = configure_logging()
+require_login()
 
 
 @st.cache_data(ttl=900, show_spinner=False)
 def load_prices(ticker: str, period: str) -> pd.DataFrame:
-    """Download daily OHLCV data and return a flat, clean dataframe."""
-    data = yf.download(ticker, period=period, auto_adjust=False, progress=False)
-    if isinstance(data.columns, pd.MultiIndex):
-        data.columns = data.columns.get_level_values(0)
-    return data.dropna().copy()
+    """Load daily production-market data from Alpaca."""
+    return load_alpaca_bars(ticker, period, intraday=False)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def load_intraday_prices(ticker: str, period: str) -> pd.DataFrame:
-    """Download recent five-minute OHLCV bars for intraday research."""
-    data = yf.download(ticker, period=period, interval="5m", auto_adjust=False, progress=False)
-    if isinstance(data.columns, pd.MultiIndex):
-        data.columns = data.columns.get_level_values(0)
-    return data.dropna().copy()
+def load_intraday_prices(ticker: str, period: str, crypto: bool = False) -> pd.DataFrame:
+    """Load five-minute production-market data from Alpaca."""
+    return load_alpaca_bars(ticker, period, intraday=True, crypto=crypto)
 
 
 st.title("Trading Bot Lab")
-st.caption("Research dashboard — backtesting only. It does not place real trades.")
+st.caption("Private paper-trading research app — strategy signals never submit orders automatically.")
 
 with st.sidebar:
     st.header("Backtest settings")
@@ -61,6 +60,7 @@ with st.sidebar:
     position_size = st.slider("Maximum position size (% of cash)", min_value=1, max_value=100, value=10, step=1)
     max_trades_per_day = st.number_input("Maximum new entries per day", min_value=1, max_value=20, value=3, step=1)
     max_daily_loss = st.slider("Daily loss lockout (%)", min_value=0.1, max_value=10.0, value=1.0, step=0.1)
+    stop_loss = st.slider("Simulated stop loss (%)", min_value=0.1, max_value=20.0, value=2.0, step=0.1)
     st.divider()
     if strategy_type == "Day-trading AI direction model":
         period = st.selectbox("5-minute history", ["30d", "60d"])
@@ -78,7 +78,7 @@ with st.sidebar:
         ai_threshold = st.slider("AI confidence threshold", min_value=0.51, max_value=0.80, value=0.60, step=0.01)
         short_window, long_window = 20, 50
     else:
-        period = st.selectbox("History", ["1y", "2y", "5y", "10y"], index=2)
+        period = st.selectbox("History", ["1y", "2y", "5y"], index=2)
         short_window = st.number_input("Short moving average", min_value=2, max_value=100, value=20)
         long_window = st.number_input("Long moving average", min_value=3, max_value=300, value=50)
         st.caption("Walk-forward validation")
@@ -92,8 +92,9 @@ if strategy_type == "Moving-average crossover" and short_window >= long_window:
 
 try:
     with st.spinner(f"Loading {ticker}..."):
-        prices = load_intraday_prices(ticker, period) if strategy_type in {"Day-trading AI direction model", "Crypto AI direction model"} else load_prices(ticker, period)
+        prices = load_intraday_prices(ticker, period, crypto=strategy_type == "Crypto AI direction model") if strategy_type in {"Day-trading AI direction model", "Crypto AI direction model"} else load_prices(ticker, period)
 except Exception as error:
+    logger.exception("Market-data load failed for %s", ticker)
     st.error(f"Could not load market data for {ticker}: {error}")
     st.stop()
 
@@ -108,6 +109,7 @@ config = BacktestConfig(
     position_size_pct=position_size / 100,
     max_trades_per_day=int(max_trades_per_day),
     max_daily_loss_pct=max_daily_loss / 100,
+    stop_loss_pct=stop_loss / 100,
 )
 if strategy_type == "Day-trading AI direction model":
     with st.spinner("Generating intraday expanding-window AI predictions..."):
@@ -183,6 +185,14 @@ equity_chart = go.Figure(go.Scatter(x=results.index, y=results["Equity"], name="
 equity_chart.update_layout(title="Equity curve", height=300, xaxis_title="Date", yaxis_title="Value ($)")
 st.plotly_chart(equity_chart, use_container_width=True)
 
+with st.expander("Market-regime validation"):
+    regimes = regime_performance(results)
+    if regimes.empty:
+        st.info("Not enough observations to classify market regimes.")
+    else:
+        st.caption("Compare results by broad trend and volatility conditions; do not rely on a single overall return.")
+        st.dataframe(regimes, use_container_width=True, hide_index=True)
+
 st.subheader("Completed paper trades")
 if trades.empty:
     st.info("No crossover trades occurred for these settings.")
@@ -204,6 +214,7 @@ parameters = {
     "position_size_pct": position_size,
     "max_trades_per_day": int(max_trades_per_day),
     "max_daily_loss_pct": max_daily_loss,
+    "stop_loss_pct": stop_loss,
 }
 if st.button("Save current backtest", type="primary"):
     run_id = save_backtest_run(
@@ -257,12 +268,15 @@ with st.expander(manual_order_title):
             st.error("Check the confirmation box before submitting a paper order.")
         else:
             try:
+                if recent_paper_order(paper_symbol):
+                    raise BrokerConfigurationError(f"A {paper_symbol} order was submitted recently. Refresh orders before trying again.")
                 order = submit_confirmed_paper_crypto_buy(paper_symbol, paper_notional) if strategy_type == "Crypto AI direction model" else submit_confirmed_paper_buy(paper_symbol, paper_notional)
             except BrokerConfigurationError as error:
                 st.warning(str(error))
             except Exception as error:
                 st.error(f"Paper order was not submitted: {error}")
             else:
+                record_paper_order(order["id"], order["symbol"], "crypto" if strategy_type == "Crypto AI direction model" else "equity", paper_notional, order["status"])
                 st.success(f"Paper order submitted: {order['symbol']} · {order['status']} · ID {order['id']}")
 
 st.subheader("Paper positions and orders")
@@ -289,6 +303,17 @@ if portfolio:
         st.info("No recent paper orders.")
     else:
         st.dataframe(order_frame, use_container_width=True, hide_index=True)
+
+    local_orders = paper_order_ledger()
+    broker_order_ids = set(order_frame["Order ID"].astype(str)) if not order_frame.empty else set()
+    missing_from_broker = local_orders[~local_orders["Order ID"].astype(str).isin(broker_order_ids)] if not local_orders.empty else local_orders
+    st.markdown("**Local order ledger**")
+    if local_orders.empty:
+        st.info("No orders have been submitted through this app yet.")
+    else:
+        st.dataframe(local_orders, use_container_width=True, hide_index=True)
+        if not missing_from_broker.empty:
+            st.warning("Some locally recorded orders are not in Alpaca's recent 10-order snapshot. Refresh later or check the Alpaca dashboard.")
 
 st.subheader("Walk-forward validation")
 if strategy_type == "Day-trading AI direction model":

@@ -11,6 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from dotenv import load_dotenv
+from logging_config import configure_logging
 
 
 class BrokerConfigurationError(RuntimeError):
@@ -18,6 +19,7 @@ class BrokerConfigurationError(RuntimeError):
 
 
 MAX_PAPER_ORDER_NOTIONAL = 25.0
+logger = configure_logging()
 
 
 def _paper_client():
@@ -85,6 +87,18 @@ def get_paper_portfolio() -> dict[str, list[dict[str, str]]]:
     return {"positions": positions, "orders": recent_orders}
 
 
+def _assert_safe_to_open(client: Any, symbol: str) -> None:
+    """Block duplicate orders and additional exposure in an existing position."""
+    from alpaca.trading.enums import QueryOrderStatus
+    from alpaca.trading.requests import GetOrdersRequest
+
+    if any(str(position.symbol) == symbol for position in client.get_all_positions()):
+        raise BrokerConfigurationError(f"A paper position in {symbol} already exists. Close or reconcile it before opening another.")
+    open_orders = client.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=100, nested=False))
+    if any(str(order.symbol) == symbol and str(order.side).lower().endswith("buy") for order in open_orders):
+        raise BrokerConfigurationError(f"An open paper buy order for {symbol} already exists.")
+
+
 def submit_confirmed_paper_buy(symbol: str, notional: float) -> dict[str, str]:
     """Submit one small market buy after broker-side and local safety checks."""
     normalized_symbol = symbol.strip().upper()
@@ -101,6 +115,7 @@ def submit_confirmed_paper_buy(symbol: str, notional: float) -> dict[str, str]:
     asset = client.get_asset(normalized_symbol)
     if not asset.tradable or str(asset.asset_class) not in {"us_equity", "AssetClass.US_EQUITY"}:
         raise BrokerConfigurationError(f"{normalized_symbol} is not a tradable US equity in this account.")
+    _assert_safe_to_open(client, normalized_symbol)
 
     from alpaca.trading.enums import OrderSide, TimeInForce
     from alpaca.trading.requests import MarketOrderRequest
@@ -114,6 +129,7 @@ def submit_confirmed_paper_buy(symbol: str, notional: float) -> dict[str, str]:
             client_order_id=f"bot-paper-{uuid4().hex[:20]}",
         )
     )
+    logger.info("Submitted paper equity buy: symbol=%s notional=%.2f order_id=%s", normalized_symbol, notional, order.id)
     return {"id": str(order.id), "symbol": str(order.symbol), "status": str(order.status)}
 
 
@@ -129,6 +145,7 @@ def submit_confirmed_paper_crypto_buy(symbol: str, notional: float) -> dict[str,
     asset = client.get_asset(normalized_symbol)
     if not asset.tradable or str(asset.asset_class) not in {"crypto", "AssetClass.CRYPTO"}:
         raise BrokerConfigurationError(f"{normalized_symbol} is not a tradable crypto asset in this account.")
+    _assert_safe_to_open(client, normalized_symbol)
 
     from alpaca.trading.enums import OrderSide, TimeInForce
     from alpaca.trading.requests import MarketOrderRequest
@@ -142,4 +159,5 @@ def submit_confirmed_paper_crypto_buy(symbol: str, notional: float) -> dict[str,
             client_order_id=f"bot-crypto-paper-{uuid4().hex[:16]}",
         )
     )
+    logger.info("Submitted paper crypto buy: symbol=%s notional=%.2f order_id=%s", normalized_symbol, notional, order.id)
     return {"id": str(order.id), "symbol": str(order.symbol), "status": str(order.status)}
