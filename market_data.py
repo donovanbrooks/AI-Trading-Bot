@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import os
+import json
 from datetime import datetime, timedelta, timezone
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import urlopen
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -67,3 +71,46 @@ def load_alpaca_bars(ticker: str, period: str, intraday: bool, crypto: bool = Fa
             StockBarsRequest(symbol_or_symbols=symbol, timeframe=timeframe, start=start, end=end, feed=DataFeed.IEX)
         )
     return _normalise_bars(bars.df, symbol)
+
+
+def _normalise_twelve_data_response(payload: dict, symbol: str) -> pd.DataFrame:
+    """Convert a Twelve Data daily time-series response to app-standard OHLCV."""
+    if payload.get("status") == "error":
+        raise MarketDataError(payload.get("message", f"Twelve Data could not load {symbol}."))
+    values = payload.get("values")
+    if not values:
+        raise MarketDataError(f"No market data was returned for {symbol}.")
+    frame = pd.DataFrame(values)
+    required = {"datetime", "open", "high", "low", "close", "volume"}
+    missing = required.difference(frame.columns)
+    if missing:
+        raise MarketDataError(f"Twelve Data is missing fields for {symbol}: {sorted(missing)}")
+    frame["datetime"] = pd.to_datetime(frame["datetime"], errors="coerce")
+    frame = frame.set_index("datetime").rename(
+        columns={"open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"}
+    )
+    for column in ["Open", "High", "Low", "Close", "Volume"]:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    frame.index.name = "timestamp"
+    return frame[["Open", "High", "Low", "Close", "Volume"]].dropna().sort_index()
+
+
+def load_twelve_data_bars(symbol: str, period: str) -> pd.DataFrame:
+    """Fetch daily international equity bars from Twelve Data using an env-stored key."""
+    load_dotenv()
+    api_key = os.getenv("TWELVE_DATA_API_KEY")
+    if not api_key:
+        raise MarketDataError("Set TWELVE_DATA_API_KEY in .env to use the international screener.")
+    query = urlencode({
+        "symbol": symbol,
+        "interval": "1day",
+        "outputsize": min(_days_for_period(period), 5_000),
+        "apikey": api_key,
+    })
+    url = f"https://api.twelvedata.com/time_series?{query}"
+    try:
+        with urlopen(url, timeout=20) as response:  # nosec B310 - fixed HTTPS provider endpoint
+            payload = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError) as error:
+        raise MarketDataError(f"Could not reach Twelve Data for {symbol}: {error}") from error
+    return _normalise_twelve_data_response(payload, symbol)

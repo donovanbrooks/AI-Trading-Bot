@@ -21,9 +21,10 @@ from broker import (
 )
 from storage import list_recent_runs, paper_order_ledger, recent_paper_order, record_paper_order, save_backtest_run
 from logging_config import configure_logging
-from market_data import load_alpaca_bars
+from market_data import load_alpaca_bars, load_twelve_data_bars
 from regime_analysis import regime_performance
 from portfolio import PortfolioConfig, portfolio_metrics, run_portfolio_backtest
+from screener import US_ETF_UNIVERSE, US_STOCK_UNIVERSE, rank_research_universe
 from strategy.ai_validation import generate_ai_signals
 from strategy.intraday_ai_validation import generate_intraday_ai_signals
 from strategy.crypto_ai_validation import generate_crypto_ai_signals
@@ -47,12 +48,23 @@ def load_intraday_prices(ticker: str, period: str, crypto: bool = False) -> pd.D
     return load_alpaca_bars(ticker, period, intraday=True, crypto=crypto)
 
 
+@st.cache_data(ttl=86_400, show_spinner=False)
+def load_global_prices(symbol: str, period: str) -> pd.DataFrame:
+    """Load international daily EOD data from the optional Twelve Data source."""
+    return load_twelve_data_bars(symbol, period)
+
+
 st.title("Trading Bot Lab")
 st.caption("Private paper-trading research app — strategy signals never submit orders automatically.")
 
 with st.sidebar:
     st.header("Backtest settings")
-    portfolio_enabled = st.checkbox("Enable multi-ticker portfolio backtest")
+    research_mode = st.radio(
+        "Research mode",
+        ["Single ticker backtest", "Multi-ticker portfolio backtest", "Top 10 US research screener"],
+    )
+    portfolio_enabled = research_mode == "Multi-ticker portfolio backtest"
+    screener_enabled = research_mode == "Top 10 US research screener"
     initial_cash = st.number_input("Starting cash ($)", min_value=100.0, value=10_000.0, step=100.0)
     fee_bps = st.number_input("Estimated fee + slippage (basis points)", min_value=0.0, value=5.0, step=1.0)
     st.divider()
@@ -61,7 +73,30 @@ with st.sidebar:
     max_trades_per_day = st.number_input("Maximum new entries per day", min_value=1, max_value=20, value=3, step=1)
     max_daily_loss = st.slider("Daily loss lockout (%)", min_value=0.1, max_value=10.0, value=1.0, step=0.1)
     stop_loss = st.slider("Simulated stop loss (%)", min_value=0.1, max_value=20.0, value=2.0, step=0.1)
-    if portfolio_enabled:
+    if screener_enabled:
+        st.divider()
+        st.caption("Top 10 screener settings")
+        screener_universe = st.selectbox("Screen", ["US ETFs", "US large-cap stocks", "International stocks (Twelve Data)"])
+        screener_period = st.selectbox("Screener history", ["1y", "2y"], index=1)
+        global_symbols = st.text_input(
+            "International symbols (comma separated)",
+            "ASML:EURONEXT, AZN:LSE, NESN:SIX, SBIN:NSE, 7203:TSE, 0700:HKEX",
+            help="Use the exact symbol:exchange identifier from Twelve Data's symbol search.",
+        ) if screener_universe == "International stocks (Twelve Data)" else ""
+        portfolio_tickers = ""
+        portfolio_strategy = "Moving-average crossover"
+        portfolio_period = "5y"
+        max_positions = 3
+        portfolio_exposure = 50
+        portfolio_drawdown = 10
+        short_window, long_window = 20, 50
+        ai_threshold = 0.55
+        ticker = ""
+        strategy_type = ""
+        period = ""
+        train_bars = 252
+        test_bars = 63
+    elif portfolio_enabled:
         st.divider()
         st.caption("Portfolio settings")
         portfolio_tickers = st.text_input("Portfolio tickers (comma separated)", "SPY, GLD, QQQ")
@@ -111,6 +146,59 @@ with st.sidebar:
             train_bars = st.number_input("Training history (trading days)", min_value=60, value=252, step=21)
             test_bars = st.number_input("Out-of-sample window (trading days)", min_value=10, value=63, step=21)
             ai_threshold = st.slider("AI confidence threshold", min_value=0.51, max_value=0.75, value=0.55, step=0.01)
+
+if screener_enabled:
+    st.header("Top 10 US research screener")
+    st.caption("A transparent, historical-data ranking—not a prediction, personalized advice, or an order signal.")
+    international_screen = screener_universe == "International stocks (Twelve Data)"
+    universe = (
+        [symbol.strip().upper() for symbol in global_symbols.split(",") if symbol.strip()]
+        if international_screen
+        else (US_ETF_UNIVERSE if screener_universe == "US ETFs" else US_STOCK_UNIVERSE)
+    )
+    asset_type = "International stock" if international_screen else ("ETF" if screener_universe == "US ETFs" else "Stock")
+    if international_screen:
+        st.write(f"This screen compares {len(universe)} international symbols you selected. It uses end-of-day data and keeps each listing in its local currency.")
+        st.warning("Scores compare percentage returns and risk—not share prices—because listings may use different currencies. Verify each listing and currency before any decision.")
+    else:
+        st.write(f"This screen compares {len(universe)} liquid US {asset_type.lower()} symbols from a fixed starter universe.")
+    st.info("Score weights: 3-month return 25%, 12-month return 30%, long-term trend 20%, lower volatility 15%, shallower drawdown 7%, and liquidity 3%.")
+    if st.button("Run Top 10 research screen", type="primary"):
+        try:
+            with st.spinner(f"Loading daily history for {len(universe)} {asset_type.lower()} symbols..."):
+                universe_prices: dict[str, pd.DataFrame] = {}
+                unavailable: list[str] = []
+                for symbol in universe:
+                    try:
+                        universe_prices[symbol] = load_global_prices(symbol, screener_period) if international_screen else load_prices(symbol, screener_period)
+                    except Exception:
+                        unavailable.append(symbol)
+                ranking = rank_research_universe(universe_prices, asset_type)
+        except Exception as error:
+            logger.exception("Research screener failed for %s", screener_universe)
+            st.error(f"Could not run the research screen: {error}")
+        else:
+            if ranking.empty:
+                st.warning("No symbols had enough usable price history to rank. Try again later.")
+            else:
+                st.subheader(f"Top 10 {screener_universe}")
+                st.dataframe(
+                    ranking.style.format({
+                        "Research score": "{:.1f}",
+                        "3-month return": "{:.1%}",
+                        "12-month return": "{:.1%}",
+                        "Trend": "{:.1%}",
+                        "Volatility": "{:.1%}",
+                        "1-year drawdown": "{:.1%}",
+                        "Median daily dollar volume": "${:,.0f}",
+                    }),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                st.caption("Use the symbols as ideas for separate paper-trading and walk-forward validation. A high score does not mean a trade will be profitable.")
+                if unavailable:
+                    st.caption(f"Unavailable in this run: {', '.join(unavailable)}.")
+    st.stop()
 
 if portfolio_enabled:
     st.header("Multi-ticker portfolio backtest")
