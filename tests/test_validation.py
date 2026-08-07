@@ -1,9 +1,12 @@
 import pandas as pd
+import numpy as np
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from storage import list_recent_runs, save_backtest_run
 from strategy.ai_validation import generate_ai_signals
+from strategy.intraday_ai_validation import generate_intraday_ai_signals
+from strategy.crypto_ai_validation import generate_crypto_ai_signals
 from validation import BacktestConfig, calculate_metrics, run_backtest, walk_forward_validate
 
 
@@ -65,3 +68,49 @@ def test_saved_backtest_persists_run_and_trades():
     assert run_id == 1
     assert saved_runs.iloc[0]["Ticker"] == "TEST"
     assert saved_runs.iloc[0]["Trades"] == len(trades)
+
+
+def test_intraday_ai_uses_regular_session_and_forces_daily_exit():
+    sessions = [
+        pd.date_range(f"{day.date()} 09:30", f"{day.date()} 16:00", freq="5min", tz="America/New_York")
+        for day in pd.date_range("2026-01-05", periods=12, freq="B")
+    ]
+    index = sessions[0].append(sessions[1:])
+    prices = 100 + np.cumsum(np.sin(np.arange(len(index))) / 5)
+    data = pd.DataFrame(
+        {"Open": prices, "High": prices + 0.1, "Low": prices - 0.1, "Close": prices, "Volume": 1_000 + np.arange(len(index))},
+        index=index,
+    )
+
+    signals = generate_intraday_ai_signals(data, train_bars=390, retrain_bars=78)
+
+    assert all("09:35:00" <= value.isoformat() <= "15:55:00" for value in signals.index.time)
+    assert signals[signals["Session Time"].astype(str) == "15:55:00"]["Execution Signal"].eq(-1).all()
+    assert signals["AI Probability"].notna().any()
+
+
+def test_crypto_ai_generates_24_hour_predictions():
+    index = pd.date_range("2026-01-01", periods=1_000, freq="5min", tz="UTC")
+    prices = 100 + np.cumsum(np.random.default_rng(42).normal(0, 0.2, len(index)))
+    data = pd.DataFrame(
+        {"Open": prices, "High": prices + 0.1, "Low": prices - 0.1, "Close": prices, "Volume": 1_000 + np.arange(len(index))},
+        index=index,
+    )
+
+    signals = generate_crypto_ai_signals(data, train_bars=500, retrain_bars=100)
+
+    assert signals["AI Probability"].notna().any()
+    assert signals.index.hour.nunique() == 24
+
+
+def test_quality_gate_caps_position_size_and_daily_entries():
+    data = price_data(4)
+    data.index = pd.date_range("2024-01-01 10:00", periods=4, freq="5min")
+    data[["Open", "High", "Low", "Close"]] = 200
+    data["Execution Signal"] = [1, -1, 1, -1]
+    config = BacktestConfig(initial_cash=1_000, trading_cost_bps=0, position_size_pct=0.1, max_trades_per_day=1)
+    results, trades = run_backtest(data, config)
+
+    assert len(trades) == 1
+    assert results["Entry Blocked"].eq("Daily trade limit").sum() == 1
+    assert trades.iloc[0]["Shares"] < 1

@@ -20,6 +20,9 @@ TRADING_DAYS_PER_YEAR = 252
 class BacktestConfig:
     initial_cash: float = 10_000.0
     trading_cost_bps: float = 5.0
+    position_size_pct: float = 0.10
+    max_trades_per_day: int | None = 3
+    max_daily_loss_pct: float | None = 0.01
 
     @property
     def cost_rate(self) -> float:
@@ -50,11 +53,22 @@ def run_backtest(data: pd.DataFrame, config: BacktestConfig) -> tuple[pd.DataFra
         raise ValueError("Cannot backtest an empty dataframe")
 
     cash, shares = config.initial_cash, 0.0
+    if not 0 < config.position_size_pct <= 1:
+        raise ValueError("position_size_pct must be greater than 0 and no more than 1")
+    if config.max_trades_per_day is not None and config.max_trades_per_day < 1:
+        raise ValueError("max_trades_per_day must be at least 1")
+    if config.max_daily_loss_pct is not None and not 0 < config.max_daily_loss_pct < 1:
+        raise ValueError("max_daily_loss_pct must be between 0 and 1")
+
     entry_price: float | None = None
     entry_date: object | None = None
     trades: list[dict[str, object]] = []
     equity: list[float] = []
     in_market: list[bool] = []
+    blocked_entries: list[str] = []
+    current_day: object | None = None
+    day_start_equity = config.initial_cash
+    day_trade_count = 0
 
     def sell(timestamp: object, price: float, reason: str) -> None:
         nonlocal cash, shares, entry_price, entry_date
@@ -77,14 +91,34 @@ def run_backtest(data: pd.DataFrame, config: BacktestConfig) -> tuple[pd.DataFra
     for timestamp, row in data.iterrows():
         open_price = float(row["Open"])
         signal = int(row["Execution Signal"])
+        trade_day = timestamp.date() if hasattr(timestamp, "date") else timestamp
+        if trade_day != current_day:
+            current_day = trade_day
+            day_start_equity = cash + shares * open_price
+            day_trade_count = 0
+
+        equity_at_open = cash + shares * open_price
+        daily_loss_limit_hit = (
+            config.max_daily_loss_pct is not None
+            and equity_at_open <= day_start_equity * (1 - config.max_daily_loss_pct)
+        )
+        blocked_reason = ""
         if signal == 1 and shares == 0:
-            shares = cash / (open_price * (1 + config.cost_rate))
-            cash = 0.0
-            entry_price, entry_date = open_price, timestamp
+            if config.max_trades_per_day is not None and day_trade_count >= config.max_trades_per_day:
+                blocked_reason = "Daily trade limit"
+            elif daily_loss_limit_hit:
+                blocked_reason = "Daily loss limit"
+            else:
+                allocation = cash * config.position_size_pct
+                shares = allocation / (open_price * (1 + config.cost_rate))
+                cash -= shares * open_price * (1 + config.cost_rate)
+                entry_price, entry_date = open_price, timestamp
+                day_trade_count += 1
         elif signal == -1 and shares > 0:
             sell(timestamp, open_price, "Signal")
         equity.append(cash + shares * float(row["Close"]))
         in_market.append(shares > 0)
+        blocked_entries.append(blocked_reason)
 
     if shares > 0:
         final_timestamp = data.index[-1]
@@ -95,19 +129,25 @@ def run_backtest(data: pd.DataFrame, config: BacktestConfig) -> tuple[pd.DataFra
     result = data.copy()
     result["Equity"] = equity
     result["In Market"] = in_market
+    result["Entry Blocked"] = blocked_entries
     result["Drawdown"] = result["Equity"] / result["Equity"].cummax() - 1
     return result, pd.DataFrame(trades)
 
 
-def calculate_metrics(results: pd.DataFrame, trades: pd.DataFrame, initial_cash: float) -> dict[str, float | int]:
+def calculate_metrics(
+    results: pd.DataFrame,
+    trades: pd.DataFrame,
+    initial_cash: float,
+    periods_per_year: int = TRADING_DAYS_PER_YEAR,
+) -> dict[str, float | int]:
     """Calculate risk and trade metrics from a completed backtest."""
     final_value = float(results["Equity"].iloc[-1])
     daily_returns = results["Equity"].pct_change().dropna()
     periods = max(len(results) - 1, 1)
-    years = periods / TRADING_DAYS_PER_YEAR
+    years = periods / periods_per_year
     annualized_return = (final_value / initial_cash) ** (1 / years) - 1 if years > 0 else 0.0
-    annualized_volatility = float(daily_returns.std(ddof=0) * np.sqrt(TRADING_DAYS_PER_YEAR)) if not daily_returns.empty else 0.0
-    sharpe_ratio = (float(daily_returns.mean()) / float(daily_returns.std(ddof=0)) * np.sqrt(TRADING_DAYS_PER_YEAR)
+    annualized_volatility = float(daily_returns.std(ddof=0) * np.sqrt(periods_per_year)) if not daily_returns.empty else 0.0
+    sharpe_ratio = (float(daily_returns.mean()) / float(daily_returns.std(ddof=0)) * np.sqrt(periods_per_year)
                     if len(daily_returns) > 1 and daily_returns.std(ddof=0) > 0 else 0.0)
     win_rate = float((trades["Return"] > 0).mean()) if not trades.empty else 0.0
     gross_wins = float(trades.loc[trades["Net P&L"] > 0, "Net P&L"].sum()) if not trades.empty else 0.0
@@ -126,6 +166,7 @@ def calculate_metrics(results: pd.DataFrame, trades: pd.DataFrame, initial_cash:
         "win_rate": win_rate,
         "profit_factor": profit_factor,
         "exposure": exposure,
+        "blocked_entries": int((results["Entry Blocked"] != "").sum()),
     }
 
 

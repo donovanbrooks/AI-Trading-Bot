@@ -53,6 +53,38 @@ def get_paper_account_summary() -> dict[str, Any]:
     }
 
 
+def get_paper_portfolio() -> dict[str, list[dict[str, str]]]:
+    """Fetch current paper positions and the ten most recent paper orders."""
+    client = _paper_client()
+    from alpaca.trading.enums import QueryOrderStatus
+    from alpaca.trading.requests import GetOrdersRequest
+
+    positions = [
+        {
+            "Symbol": str(position.symbol),
+            "Quantity": str(position.qty),
+            "Market Value": str(position.market_value),
+            "Unrealized P&L": str(position.unrealized_pl),
+        }
+        for position in client.get_all_positions()
+    ]
+    orders = client.get_orders(
+        filter=GetOrdersRequest(status=QueryOrderStatus.ALL, limit=10, nested=False)
+    )
+    recent_orders = [
+        {
+            "Submitted": str(order.submitted_at),
+            "Symbol": str(order.symbol),
+            "Side": str(order.side),
+            "Amount": str(order.notional or order.qty),
+            "Status": str(order.status),
+            "Order ID": str(order.id),
+        }
+        for order in orders
+    ]
+    return {"positions": positions, "orders": recent_orders}
+
+
 def submit_confirmed_paper_buy(symbol: str, notional: float) -> dict[str, str]:
     """Submit one small market buy after broker-side and local safety checks."""
     normalized_symbol = symbol.strip().upper()
@@ -80,6 +112,34 @@ def submit_confirmed_paper_buy(symbol: str, notional: float) -> dict[str, str]:
             side=OrderSide.BUY,
             time_in_force=TimeInForce.DAY,
             client_order_id=f"bot-paper-{uuid4().hex[:20]}",
+        )
+    )
+    return {"id": str(order.id), "symbol": str(order.symbol), "status": str(order.status)}
+
+
+def submit_confirmed_paper_crypto_buy(symbol: str, notional: float) -> dict[str, str]:
+    """Submit one small, manually confirmed 24/7 crypto paper market buy."""
+    normalized_symbol = symbol.strip().upper()
+    if not re.fullmatch(r"[A-Z]{2,10}/[A-Z]{2,10}", normalized_symbol):
+        raise BrokerConfigurationError("Enter a crypto pair such as BTC/USD.")
+    if not 1 <= notional <= MAX_PAPER_ORDER_NOTIONAL:
+        raise BrokerConfigurationError(f"Paper orders must be between $1 and ${MAX_PAPER_ORDER_NOTIONAL:.0f}.")
+
+    client = _paper_client()
+    asset = client.get_asset(normalized_symbol)
+    if not asset.tradable or str(asset.asset_class) not in {"crypto", "AssetClass.CRYPTO"}:
+        raise BrokerConfigurationError(f"{normalized_symbol} is not a tradable crypto asset in this account.")
+
+    from alpaca.trading.enums import OrderSide, TimeInForce
+    from alpaca.trading.requests import MarketOrderRequest
+
+    order = client.submit_order(
+        order_data=MarketOrderRequest(
+            symbol=normalized_symbol,
+            notional=round(notional, 2),
+            side=OrderSide.BUY,
+            time_in_force=TimeInForce.GTC,
+            client_order_id=f"bot-crypto-paper-{uuid4().hex[:16]}",
         )
     )
     return {"id": str(order.id), "symbol": str(order.symbol), "status": str(order.status)}

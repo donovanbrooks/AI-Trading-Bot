@@ -11,9 +11,18 @@ import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
 
-from broker import BrokerConfigurationError, MAX_PAPER_ORDER_NOTIONAL, get_paper_account_summary, submit_confirmed_paper_buy
+from broker import (
+    BrokerConfigurationError,
+    MAX_PAPER_ORDER_NOTIONAL,
+    get_paper_account_summary,
+    get_paper_portfolio,
+    submit_confirmed_paper_buy,
+    submit_confirmed_paper_crypto_buy,
+)
 from storage import list_recent_runs, save_backtest_run
 from strategy.ai_validation import generate_ai_signals
+from strategy.intraday_ai_validation import generate_intraday_ai_signals
+from strategy.crypto_ai_validation import generate_crypto_ai_signals
 from validation import BacktestConfig, build_crossover_signals, calculate_metrics, run_backtest, walk_forward_validate
 
 
@@ -29,41 +38,92 @@ def load_prices(ticker: str, period: str) -> pd.DataFrame:
     return data.dropna().copy()
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def load_intraday_prices(ticker: str, period: str) -> pd.DataFrame:
+    """Download recent five-minute OHLCV bars for intraday research."""
+    data = yf.download(ticker, period=period, interval="5m", auto_adjust=False, progress=False)
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+    return data.dropna().copy()
+
+
 st.title("Trading Bot Lab")
 st.caption("Research dashboard — backtesting only. It does not place real trades.")
 
 with st.sidebar:
     st.header("Backtest settings")
     ticker = st.text_input("Ticker", "SPY").upper().strip()
-    period = st.selectbox("History", ["1y", "2y", "5y", "10y"], index=2)
-    strategy_type = st.radio("Strategy", ["Moving-average crossover", "AI direction model"])
-    short_window = st.number_input("Short moving average", min_value=2, max_value=100, value=20)
-    long_window = st.number_input("Long moving average", min_value=3, max_value=300, value=50)
+    strategy_type = st.radio("Strategy", ["Moving-average crossover", "AI direction model", "Day-trading AI direction model", "Crypto AI direction model"])
     initial_cash = st.number_input("Starting cash ($)", min_value=100.0, value=10_000.0, step=100.0)
     fee_bps = st.number_input("Estimated fee + slippage (basis points)", min_value=0.0, value=5.0, step=1.0)
     st.divider()
-    st.caption("Walk-forward validation")
-    train_bars = st.number_input("Training history (trading days)", min_value=60, value=252, step=21)
-    test_bars = st.number_input("Out-of-sample window (trading days)", min_value=10, value=63, step=21)
-    ai_threshold = st.slider("AI confidence threshold", min_value=0.51, max_value=0.75, value=0.55, step=0.01)
+    st.caption("Trade-quality gate")
+    position_size = st.slider("Maximum position size (% of cash)", min_value=1, max_value=100, value=10, step=1)
+    max_trades_per_day = st.number_input("Maximum new entries per day", min_value=1, max_value=20, value=3, step=1)
+    max_daily_loss = st.slider("Daily loss lockout (%)", min_value=0.1, max_value=10.0, value=1.0, step=0.1)
+    st.divider()
+    if strategy_type == "Day-trading AI direction model":
+        period = st.selectbox("5-minute history", ["30d", "60d"])
+        st.caption("Intraday validation")
+        train_bars = st.number_input("Training history (five-minute bars)", min_value=390, value=780, step=78)
+        test_bars = 78
+        ai_threshold = st.slider("AI confidence threshold", min_value=0.51, max_value=0.75, value=0.58, step=0.01)
+        short_window, long_window = 20, 50
+    elif strategy_type == "Crypto AI direction model":
+        period = st.selectbox("Five-minute crypto history", ["30d", "60d"])
+        st.caption("24/7 crypto validation")
+        st.info("Use a Yahoo Finance crypto ticker here, such as BTC-USD. Strategy orders remain disabled.")
+        train_bars = st.number_input("Training history (five-minute bars)", min_value=1_008, value=2_016, step=288)
+        test_bars = 288
+        ai_threshold = st.slider("AI confidence threshold", min_value=0.51, max_value=0.80, value=0.60, step=0.01)
+        short_window, long_window = 20, 50
+    else:
+        period = st.selectbox("History", ["1y", "2y", "5y", "10y"], index=2)
+        short_window = st.number_input("Short moving average", min_value=2, max_value=100, value=20)
+        long_window = st.number_input("Long moving average", min_value=3, max_value=300, value=50)
+        st.caption("Walk-forward validation")
+        train_bars = st.number_input("Training history (trading days)", min_value=60, value=252, step=21)
+        test_bars = st.number_input("Out-of-sample window (trading days)", min_value=10, value=63, step=21)
+        ai_threshold = st.slider("AI confidence threshold", min_value=0.51, max_value=0.75, value=0.55, step=0.01)
 
-if short_window >= long_window:
+if strategy_type == "Moving-average crossover" and short_window >= long_window:
     st.error("The short moving average must be smaller than the long moving average.")
     st.stop()
 
 try:
     with st.spinner(f"Loading {ticker}..."):
-        prices = load_prices(ticker, period)
+        prices = load_intraday_prices(ticker, period) if strategy_type in {"Day-trading AI direction model", "Crypto AI direction model"} else load_prices(ticker, period)
 except Exception as error:
     st.error(f"Could not load market data for {ticker}: {error}")
     st.stop()
 
-if prices.empty or len(prices) < long_window + 2:
+minimum_bars = int(train_bars) + 50 if strategy_type in {"Day-trading AI direction model", "Crypto AI direction model"} else int(long_window) + 2
+if prices.empty or len(prices) < minimum_bars:
     st.error("Not enough price history for those settings. Choose a longer history or shorter windows.")
     st.stop()
 
-config = BacktestConfig(initial_cash=initial_cash, trading_cost_bps=fee_bps)
-if strategy_type == "AI direction model":
+config = BacktestConfig(
+    initial_cash=initial_cash,
+    trading_cost_bps=fee_bps,
+    position_size_pct=position_size / 100,
+    max_trades_per_day=int(max_trades_per_day),
+    max_daily_loss_pct=max_daily_loss / 100,
+)
+if strategy_type == "Day-trading AI direction model":
+    with st.spinner("Generating intraday expanding-window AI predictions..."):
+        signals = generate_intraday_ai_signals(
+            prices,
+            train_bars=int(train_bars),
+            probability_threshold=ai_threshold,
+        )
+elif strategy_type == "Crypto AI direction model":
+    with st.spinner("Generating 24/7 crypto AI predictions..."):
+        signals = generate_crypto_ai_signals(
+            prices,
+            train_bars=int(train_bars),
+            probability_threshold=ai_threshold,
+        )
+elif strategy_type == "AI direction model":
     with st.spinner("Generating expanding-window AI predictions..."):
         signals = generate_ai_signals(
             prices,
@@ -73,7 +133,8 @@ if strategy_type == "AI direction model":
 else:
     signals = build_crossover_signals(prices, int(short_window), int(long_window))
 results, trades = run_backtest(signals, config)
-metrics = calculate_metrics(results, trades, initial_cash)
+periods_per_year = 365 * 288 if strategy_type == "Crypto AI direction model" else (252 * 78 if strategy_type == "Day-trading AI direction model" else 252)
+metrics = calculate_metrics(results, trades, initial_cash, periods_per_year=periods_per_year)
 final_value = float(metrics["final_value"])
 strategy_return = float(metrics["total_return"])
 buy_hold_return = float(results["Close"].iloc[-1] / results["Close"].iloc[0] - 1)
@@ -88,6 +149,8 @@ st.caption(
     f"{metrics['trade_count']} completed trades · {metrics['win_rate']:.0%} win rate · "
     f"{metrics['exposure']:.0%} market exposure · Sharpe {metrics['sharpe_ratio']:.2f}"
 )
+if metrics["blocked_entries"]:
+    st.caption(f"Trade-quality gate blocked {metrics['blocked_entries']} entry signal(s).")
 
 price_chart = go.Figure()
 price_chart.add_trace(go.Scatter(x=results.index, y=results["Close"], name="Close", line={"color": "#9ec5fe"}))
@@ -137,7 +200,10 @@ parameters = {
     "long_window": int(long_window),
     "training_bars": int(train_bars),
     "test_bars": int(test_bars),
-    "ai_confidence_threshold": ai_threshold if strategy_type == "AI direction model" else None,
+    "ai_confidence_threshold": ai_threshold if "AI direction model" in strategy_type else None,
+    "position_size_pct": position_size,
+    "max_trades_per_day": int(max_trades_per_day),
+    "max_daily_loss_pct": max_daily_loss,
 }
 if st.button("Save current backtest", type="primary"):
     run_id = save_backtest_run(
@@ -174,19 +240,24 @@ if st.button("Check paper account connection"):
         account_columns[2].metric("Paper equity", f"${account['equity']:,.2f}")
         st.success(f"Connected to paper account {account['account_number']} ({account['status']}).")
 
-with st.expander("Manual paper buy"):
+if strategy_type != "Crypto AI direction model":
+    manual_order_title = "Manual paper buy"
+else:
+    manual_order_title = "Manual paper crypto buy"
+
+with st.expander(manual_order_title):
     st.warning("This sends a real order to your Alpaca PAPER account. It cannot use real-money credentials.")
     with st.form("manual_paper_buy", clear_on_submit=False):
-        paper_symbol = st.text_input("US stock symbol", value=ticker, max_chars=10).upper()
+        paper_symbol = st.text_input("Crypto pair (for example BTC/USD)" if strategy_type == "Crypto AI direction model" else "US stock symbol", value="BTC/USD" if strategy_type == "Crypto AI direction model" else ticker, max_chars=10).upper()
         paper_notional = st.number_input("Dollar amount", min_value=1.0, max_value=MAX_PAPER_ORDER_NOTIONAL, value=5.0, step=1.0)
         confirmation = st.checkbox(f"I confirm a paper-market buy of up to ${paper_notional:.2f} may be submitted.")
-        submit_paper_buy = st.form_submit_button("Submit paper buy")
+        submit_paper_buy = st.form_submit_button("Submit paper crypto buy" if strategy_type == "Crypto AI direction model" else "Submit paper buy")
     if submit_paper_buy:
         if not confirmation:
             st.error("Check the confirmation box before submitting a paper order.")
         else:
             try:
-                order = submit_confirmed_paper_buy(paper_symbol, paper_notional)
+                order = submit_confirmed_paper_crypto_buy(paper_symbol, paper_notional) if strategy_type == "Crypto AI direction model" else submit_confirmed_paper_buy(paper_symbol, paper_notional)
             except BrokerConfigurationError as error:
                 st.warning(str(error))
             except Exception as error:
@@ -194,8 +265,37 @@ with st.expander("Manual paper buy"):
             else:
                 st.success(f"Paper order submitted: {order['symbol']} · {order['status']} · ID {order['id']}")
 
+st.subheader("Paper positions and orders")
+if st.button("Refresh paper positions and orders"):
+    try:
+        st.session_state["paper_portfolio"] = get_paper_portfolio()
+    except BrokerConfigurationError as error:
+        st.warning(str(error))
+    except Exception as error:
+        st.error(f"Could not retrieve paper positions and orders: {error}")
+
+portfolio = st.session_state.get("paper_portfolio")
+if portfolio:
+    position_frame = pd.DataFrame(portfolio["positions"])
+    order_frame = pd.DataFrame(portfolio["orders"])
+    st.caption("Snapshot from Alpaca paper trading. Refresh it after an order fills.")
+    st.markdown("**Open positions**")
+    if position_frame.empty:
+        st.info("No open paper positions.")
+    else:
+        st.dataframe(position_frame, use_container_width=True, hide_index=True)
+    st.markdown("**Recent orders**")
+    if order_frame.empty:
+        st.info("No recent paper orders.")
+    else:
+        st.dataframe(order_frame, use_container_width=True, hide_index=True)
+
 st.subheader("Walk-forward validation")
-if strategy_type == "AI direction model":
+if strategy_type == "Day-trading AI direction model":
+    st.caption("Five-minute model: expanding-window training, same-session targets, next-bar execution, and a forced end-of-session exit. This is research only; it cannot place strategy orders.")
+elif strategy_type == "Crypto AI direction model":
+    st.caption("Five-minute crypto model: expanding-window training and next-bar execution across a 24/7 market. This is research only; it cannot place strategy orders.")
+elif strategy_type == "AI direction model":
     st.caption("AI predictions are generated in expanding windows: every prediction uses only earlier labeled data. The chart and metrics above are its out-of-sample evaluation.")
 elif len(prices) <= int(train_bars) + 1:
     st.info("Choose a longer price history or a smaller training history to see out-of-sample windows.")
