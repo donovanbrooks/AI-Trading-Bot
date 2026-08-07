@@ -114,3 +114,13 @@ def test_quality_gate_caps_position_size_and_daily_entries():
     assert len(trades) == 1
     assert results["Entry Blocked"].eq("Daily trade limit").sum() == 1
     assert trades.iloc[0]["Shares"] < 1
+
+
+def test_simulated_stop_loss_exits_a_position():
+    data = price_data(3)
+    data.index = pd.date_range("2024-01-01 10:00", periods=3, freq="5min")
+    data["Execution Signal"] = [1, 0, 0]
+    data.loc[data.index[1], "Low"] = 90
+    _, trades = run_backtest(data, BacktestConfig(initial_cash=1_000, trading_cost_bps=0, stop_loss_pct=0.05))
+
+    assert trades.iloc[0]["Exit Reason"] == "Stop loss"

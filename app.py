@@ -23,6 +23,7 @@ from storage import list_recent_runs, paper_order_ledger, recent_paper_order, re
 from logging_config import configure_logging
 from market_data import load_alpaca_bars
 from regime_analysis import regime_performance
+from portfolio import PortfolioConfig, portfolio_metrics, run_portfolio_backtest
 from strategy.ai_validation import generate_ai_signals
 from strategy.intraday_ai_validation import generate_intraday_ai_signals
 from strategy.crypto_ai_validation import generate_crypto_ai_signals
@@ -51,8 +52,7 @@ st.caption("Private paper-trading research app — strategy signals never submit
 
 with st.sidebar:
     st.header("Backtest settings")
-    ticker = st.text_input("Ticker", "SPY").upper().strip()
-    strategy_type = st.radio("Strategy", ["Moving-average crossover", "AI direction model", "Day-trading AI direction model", "Crypto AI direction model"])
+    portfolio_enabled = st.checkbox("Enable multi-ticker portfolio backtest")
     initial_cash = st.number_input("Starting cash ($)", min_value=100.0, value=10_000.0, step=100.0)
     fee_bps = st.number_input("Estimated fee + slippage (basis points)", min_value=0.0, value=5.0, step=1.0)
     st.divider()
@@ -61,30 +61,108 @@ with st.sidebar:
     max_trades_per_day = st.number_input("Maximum new entries per day", min_value=1, max_value=20, value=3, step=1)
     max_daily_loss = st.slider("Daily loss lockout (%)", min_value=0.1, max_value=10.0, value=1.0, step=0.1)
     stop_loss = st.slider("Simulated stop loss (%)", min_value=0.1, max_value=20.0, value=2.0, step=0.1)
-    st.divider()
-    if strategy_type == "Day-trading AI direction model":
-        period = st.selectbox("5-minute history", ["30d", "60d"])
-        st.caption("Intraday validation")
-        train_bars = st.number_input("Training history (five-minute bars)", min_value=390, value=780, step=78)
-        test_bars = 78
-        ai_threshold = st.slider("AI confidence threshold", min_value=0.51, max_value=0.75, value=0.58, step=0.01)
-        short_window, long_window = 20, 50
-    elif strategy_type == "Crypto AI direction model":
-        period = st.selectbox("Five-minute crypto history", ["30d", "60d"])
-        st.caption("24/7 crypto validation")
-        st.info("Use a Yahoo Finance crypto ticker here, such as BTC-USD. Strategy orders remain disabled.")
-        train_bars = st.number_input("Training history (five-minute bars)", min_value=1_008, value=2_016, step=288)
-        test_bars = 288
-        ai_threshold = st.slider("AI confidence threshold", min_value=0.51, max_value=0.80, value=0.60, step=0.01)
-        short_window, long_window = 20, 50
+    if portfolio_enabled:
+        st.divider()
+        st.caption("Portfolio settings")
+        portfolio_tickers = st.text_input("Portfolio tickers (comma separated)", "SPY, GLD, QQQ")
+        portfolio_strategy = st.selectbox("Portfolio strategy", ["Moving-average crossover", "AI direction model"])
+        portfolio_period = st.selectbox("Portfolio history", ["1y", "2y", "5y"], index=2)
+        max_positions = st.number_input("Maximum simultaneous positions", min_value=1, max_value=20, value=3, step=1)
+        portfolio_exposure = st.slider("Maximum total portfolio exposure (%)", min_value=5, max_value=100, value=50, step=5)
+        portfolio_drawdown = st.slider("Portfolio drawdown lockout (%)", min_value=1, max_value=50, value=10, step=1)
+        short_window = st.number_input("Portfolio short moving average", min_value=2, max_value=100, value=20)
+        long_window = st.number_input("Portfolio long moving average", min_value=3, max_value=300, value=50)
+        ai_threshold = st.slider("Portfolio AI confidence threshold", min_value=0.51, max_value=0.75, value=0.55, step=0.01)
+        ticker = ""
+        strategy_type = ""
+        period = ""
+        train_bars = 252
+        test_bars = 63
     else:
-        period = st.selectbox("History", ["1y", "2y", "5y"], index=2)
-        short_window = st.number_input("Short moving average", min_value=2, max_value=100, value=20)
-        long_window = st.number_input("Long moving average", min_value=3, max_value=300, value=50)
-        st.caption("Walk-forward validation")
-        train_bars = st.number_input("Training history (trading days)", min_value=60, value=252, step=21)
-        test_bars = st.number_input("Out-of-sample window (trading days)", min_value=10, value=63, step=21)
-        ai_threshold = st.slider("AI confidence threshold", min_value=0.51, max_value=0.75, value=0.55, step=0.01)
+        portfolio_tickers = ""
+        portfolio_strategy = "Moving-average crossover"
+        portfolio_period = "5y"
+        max_positions = 3
+        portfolio_exposure = 50
+        portfolio_drawdown = 10
+        st.divider()
+        ticker = st.text_input("Ticker", "SPY").upper().strip()
+        strategy_type = st.radio("Strategy", ["Moving-average crossover", "AI direction model", "Day-trading AI direction model", "Crypto AI direction model"])
+        if strategy_type == "Day-trading AI direction model":
+            period = st.selectbox("5-minute history", ["30d", "60d"])
+            st.caption("Intraday validation")
+            train_bars = st.number_input("Training history (five-minute bars)", min_value=390, value=780, step=78)
+            test_bars = 78
+            ai_threshold = st.slider("AI confidence threshold", min_value=0.51, max_value=0.75, value=0.58, step=0.01)
+            short_window, long_window = 20, 50
+        elif strategy_type == "Crypto AI direction model":
+            period = st.selectbox("Five-minute crypto history", ["30d", "60d"])
+            st.caption("24/7 crypto validation")
+            st.info("Use a crypto ticker such as BTC-USD. Strategy orders remain disabled.")
+            train_bars = st.number_input("Training history (five-minute bars)", min_value=1_008, value=2_016, step=288)
+            test_bars = 288
+            ai_threshold = st.slider("AI confidence threshold", min_value=0.51, max_value=0.80, value=0.60, step=0.01)
+            short_window, long_window = 20, 50
+        else:
+            period = st.selectbox("History", ["1y", "2y", "5y"], index=2)
+            short_window = st.number_input("Short moving average", min_value=2, max_value=100, value=20)
+            long_window = st.number_input("Long moving average", min_value=3, max_value=300, value=50)
+            st.caption("Walk-forward validation")
+            train_bars = st.number_input("Training history (trading days)", min_value=60, value=252, step=21)
+            test_bars = st.number_input("Out-of-sample window (trading days)", min_value=10, value=63, step=21)
+            ai_threshold = st.slider("AI confidence threshold", min_value=0.51, max_value=0.75, value=0.55, step=0.01)
+
+if portfolio_enabled:
+    st.header("Multi-ticker portfolio backtest")
+    st.caption("One shared cash balance across daily stock/ETF signals. This is research only and does not submit broker orders.")
+    tickers = list(dict.fromkeys(symbol.strip().upper() for symbol in portfolio_tickers.split(",") if symbol.strip()))
+    if portfolio_strategy == "Moving-average crossover" and short_window >= long_window:
+        st.error("The portfolio short moving average must be smaller than the long moving average.")
+    elif not tickers:
+        st.warning("Enter at least one stock or ETF ticker.")
+    elif any("/" in symbol or "-" in symbol for symbol in tickers):
+        st.warning("The first portfolio version supports daily stock and ETF tickers only. Run crypto in its separate research mode.")
+    else:
+        try:
+            with st.spinner("Loading portfolio signals and ranking entries..."):
+                portfolio_signals: dict[str, pd.DataFrame] = {}
+                for symbol in tickers:
+                    portfolio_prices = load_prices(symbol, portfolio_period)
+                    if portfolio_strategy == "AI direction model":
+                        portfolio_signals[symbol] = generate_ai_signals(portfolio_prices, train_bars=252, probability_threshold=ai_threshold)
+                    else:
+                        portfolio_signals[symbol] = build_crossover_signals(portfolio_prices, int(short_window), int(long_window))
+                portfolio_config = PortfolioConfig(
+                    initial_cash=initial_cash,
+                    trading_cost_bps=fee_bps,
+                    position_size_pct=position_size / 100,
+                    total_exposure_cap=portfolio_exposure / 100,
+                    max_positions=int(max_positions),
+                    max_entries_per_day=int(max_trades_per_day),
+                    max_daily_loss_pct=max_daily_loss / 100,
+                    max_drawdown_pct=portfolio_drawdown / 100,
+                    stop_loss_pct=stop_loss / 100,
+                )
+                portfolio_results, portfolio_trades = run_portfolio_backtest(portfolio_signals, portfolio_config)
+                portfolio_summary = portfolio_metrics(portfolio_results, portfolio_trades, initial_cash)
+        except Exception as error:
+            logger.exception("Portfolio backtest failed for %s", tickers)
+            st.error(f"Could not run the portfolio backtest: {error}")
+        else:
+            column_one, column_two, column_three, column_four = st.columns(4)
+            column_one.metric("Portfolio value", f"${portfolio_summary['final_value']:,.2f}")
+            column_two.metric("Portfolio return", f"{portfolio_summary['total_return']:.2%}")
+            column_three.metric("Maximum drawdown", f"{portfolio_summary['max_drawdown']:.2%}")
+            column_four.metric("Average idle cash", f"${portfolio_summary['average_cash']:,.2f}")
+            st.caption(f"{portfolio_summary['trade_count']} completed trades · {portfolio_summary['win_rate']:.0%} win rate · {portfolio_summary['blocked_entries']} ranked entries blocked by portfolio rules")
+            portfolio_chart = go.Figure(go.Scatter(x=portfolio_results.index, y=portfolio_results["Portfolio Equity"], name="Shared portfolio equity", fill="tozeroy"))
+            portfolio_chart.update_layout(height=320, xaxis_title="Date", yaxis_title="Portfolio value ($)")
+            st.plotly_chart(portfolio_chart, use_container_width=True)
+            if portfolio_trades.empty:
+                st.info("No completed portfolio trades for these settings.")
+            else:
+                st.dataframe(portfolio_trades, use_container_width=True, hide_index=True)
+    st.stop()
 
 if strategy_type == "Moving-average crossover" and short_window >= long_window:
     st.error("The short moving average must be smaller than the long moving average.")
