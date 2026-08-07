@@ -3,14 +3,33 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from dotenv import load_dotenv
 
 
 DEFAULT_DATABASE_PATH = Path("data/trading_bot.db")
+
+
+def _cloud_context():
+    """Return a server-side Supabase client scoped to the signed-in user."""
+    try:
+        import streamlit as st
+        from supabase import create_client
+
+        load_dotenv(override=True)
+        user_id = st.session_state.get("supabase_user_id")
+        url = os.getenv("SUPABASE_URL")
+        service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        if user_id and url and service_key:
+            return create_client(url, service_key), str(user_id)
+    except Exception:
+        pass
+    return None, None
 
 
 def _connect(database_path: Path = DEFAULT_DATABASE_PATH) -> sqlite3.Connection:
@@ -61,8 +80,129 @@ def initialize_database(database_path: Path = DEFAULT_DATABASE_PATH) -> None:
                 notional REAL NOT NULL,
                 broker_status TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS watchlists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                source TEXT NOT NULL,
+                minimum_score REAL NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS watchlist_symbols (
+                watchlist_id INTEGER NOT NULL REFERENCES watchlists(id) ON DELETE CASCADE,
+                symbol TEXT NOT NULL,
+                asset_type TEXT NOT NULL,
+                PRIMARY KEY (watchlist_id, symbol)
+            );
             """
         )
+
+
+def save_watchlist(
+    name: str,
+    source: str,
+    symbols: list[str],
+    asset_type: str,
+    minimum_score: float,
+    database_path: Path = DEFAULT_DATABASE_PATH,
+) -> int:
+    """Create or replace a named research watchlist and its in-app alert rule."""
+    cleaned_name = name.strip()
+    cleaned_symbols = sorted({symbol.strip().upper() for symbol in symbols if symbol.strip()})
+    if not cleaned_name:
+        raise ValueError("A watchlist name is required.")
+    if not cleaned_symbols:
+        raise ValueError("Select at least one symbol for the watchlist.")
+    if not 0 <= minimum_score <= 100:
+        raise ValueError("The alert score must be between 0 and 100.")
+    client, user_id = _cloud_context()
+    if client and user_id:
+        response = client.table("watchlists").upsert(
+            {
+                "user_id": user_id,
+                "name": cleaned_name,
+                "source": source,
+                "minimum_score": float(minimum_score),
+                "symbols": [{"symbol": symbol, "asset_type": asset_type} for symbol in cleaned_symbols],
+            },
+            on_conflict="user_id,name",
+        ).execute()
+        return int(response.data[0]["id"].replace("-", "")[:8], 16)
+    initialize_database(database_path)
+    with _connect(database_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO watchlists (name, source, minimum_score)
+            VALUES (?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET
+                source = excluded.source,
+                minimum_score = excluded.minimum_score,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (cleaned_name, source, float(minimum_score)),
+        )
+        row = connection.execute("SELECT id FROM watchlists WHERE name = ?", (cleaned_name,)).fetchone()
+        watchlist_id = int(row[0])
+        connection.execute("DELETE FROM watchlist_symbols WHERE watchlist_id = ?", (watchlist_id,))
+        connection.executemany(
+            "INSERT INTO watchlist_symbols (watchlist_id, symbol, asset_type) VALUES (?, ?, ?)",
+            [(watchlist_id, symbol, asset_type) for symbol in cleaned_symbols],
+        )
+    return watchlist_id
+
+
+def list_watchlists(database_path: Path = DEFAULT_DATABASE_PATH) -> pd.DataFrame:
+    """Return saved watchlists with their symbols and score-alert threshold."""
+    client, user_id = _cloud_context()
+    if client and user_id:
+        rows = client.table("watchlists").select("id,name,source,minimum_score,updated_at,symbols").eq("user_id", user_id).order("updated_at", desc=True).execute().data
+        return pd.DataFrame([
+            {"Watchlist": row["id"], "Name": row["name"], "Source": row["source"], "Alert score": row["minimum_score"], "Updated": row["updated_at"], "Symbols": ", ".join(item["symbol"] for item in row["symbols"])}
+            for row in rows
+        ])
+    initialize_database(database_path)
+    with _connect(database_path) as connection:
+        return pd.read_sql_query(
+            """
+            SELECT w.id AS "Watchlist", w.name AS "Name", w.source AS "Source",
+                   w.minimum_score AS "Alert score", w.updated_at AS "Updated",
+                   GROUP_CONCAT(s.symbol, ', ') AS "Symbols"
+            FROM watchlists w
+            LEFT JOIN watchlist_symbols s ON s.watchlist_id = w.id
+            GROUP BY w.id
+            ORDER BY w.updated_at DESC, w.id DESC
+            """,
+            connection,
+        )
+
+
+def research_alerts(ranking: pd.DataFrame, database_path: Path = DEFAULT_DATABASE_PATH) -> pd.DataFrame:
+    """Return saved-symbol score alerts triggered by the current screener results."""
+    if ranking.empty or not {"Symbol", "Research score"}.issubset(ranking.columns):
+        return pd.DataFrame()
+    client, user_id = _cloud_context()
+    if client and user_id:
+        rows = client.table("watchlists").select("name,minimum_score,symbols").eq("user_id", user_id).execute().data
+        saved = pd.DataFrame([
+            {"Watchlist": row["name"], "Symbol": item["symbol"], "Alert score": row["minimum_score"]}
+            for row in rows for item in row["symbols"]
+        ])
+    else:
+        initialize_database(database_path)
+        with _connect(database_path) as connection:
+            saved = pd.read_sql_query(
+                """
+                SELECT w.name AS "Watchlist", s.symbol AS "Symbol", w.minimum_score AS "Alert score"
+                FROM watchlists w JOIN watchlist_symbols s ON s.watchlist_id = w.id
+                """,
+                connection,
+            )
+    if saved.empty:
+        return saved
+    alerts = saved.merge(ranking[["Symbol", "Research score", "Why it ranked"]], on="Symbol", how="inner")
+    return alerts[alerts["Research score"] >= alerts["Alert score"]].sort_values("Research score", ascending=False).reset_index(drop=True)
 
 
 def record_paper_order(

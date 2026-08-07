@@ -19,7 +19,16 @@ from broker import (
     submit_confirmed_paper_buy,
     submit_confirmed_paper_crypto_buy,
 )
-from storage import list_recent_runs, paper_order_ledger, recent_paper_order, record_paper_order, save_backtest_run
+from storage import (
+    list_recent_runs,
+    list_watchlists,
+    paper_order_ledger,
+    recent_paper_order,
+    record_paper_order,
+    research_alerts,
+    save_backtest_run,
+    save_watchlist,
+)
 from logging_config import configure_logging
 from market_data import load_alpaca_bars, load_twelve_data_bars
 from regime_analysis import regime_performance
@@ -99,7 +108,19 @@ with st.sidebar:
     elif portfolio_enabled:
         st.divider()
         st.caption("Portfolio settings")
-        portfolio_tickers = st.text_input("Portfolio tickers (comma separated)", "SPY, GLD, QQQ")
+        saved_watchlists = list_watchlists()
+        watchlist_options = ["Manual ticker entry"]
+        if not saved_watchlists.empty:
+            watchlist_options.extend(saved_watchlists["Name"].astype(str).tolist())
+        selected_watchlist = st.selectbox("Load a saved watchlist", watchlist_options)
+        if selected_watchlist == "Manual ticker entry":
+            default_portfolio_tickers = "SPY, GLD, QQQ"
+        else:
+            default_portfolio_tickers = str(
+                saved_watchlists.loc[saved_watchlists["Name"] == selected_watchlist, "Symbols"].iloc[0]
+            )
+            st.caption("Loaded from your saved watchlist. You can still edit the symbols below.")
+        portfolio_tickers = st.text_input("Portfolio tickers (comma separated)", default_portfolio_tickers)
         portfolio_strategy = st.selectbox("Portfolio strategy", ["Moving-average crossover", "AI direction model"])
         portfolio_period = st.selectbox("Portfolio history", ["1y", "2y", "5y"], index=2)
         max_positions = st.number_input("Maximum simultaneous positions", min_value=1, max_value=20, value=3, step=1)
@@ -181,23 +202,64 @@ if screener_enabled:
             if ranking.empty:
                 st.warning("No symbols had enough usable price history to rank. Try again later.")
             else:
-                st.subheader(f"Top 10 {screener_universe}")
-                st.dataframe(
-                    ranking.style.format({
-                        "Research score": "{:.1f}",
-                        "3-month return": "{:.1%}",
-                        "12-month return": "{:.1%}",
-                        "Trend": "{:.1%}",
-                        "Volatility": "{:.1%}",
-                        "1-year drawdown": "{:.1%}",
-                        "Median daily dollar volume": "${:,.0f}",
-                    }),
-                    use_container_width=True,
-                    hide_index=True,
+                st.session_state["screener_ranking"] = ranking
+                st.session_state["screener_source"] = screener_universe
+                st.session_state["screener_unavailable"] = unavailable
+
+    ranking = st.session_state.get("screener_ranking")
+    if isinstance(ranking, pd.DataFrame) and not ranking.empty:
+        st.subheader(f"Top 10 {st.session_state.get('screener_source', screener_universe)}")
+        st.dataframe(
+            ranking.style.format({
+                "Research score": "{:.1f}",
+                "3-month return": "{:.1%}",
+                "12-month return": "{:.1%}",
+                "Trend": "{:.1%}",
+                "Volatility": "{:.1%}",
+                "1-year drawdown": "{:.1%}",
+                "Median daily dollar volume": "${:,.0f}",
+            }),
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption("Use the symbols as ideas for separate paper-trading and walk-forward validation. A high score does not mean a trade will be profitable.")
+        if st.session_state.get("screener_unavailable"):
+            st.caption(f"Unavailable in this run: {', '.join(st.session_state['screener_unavailable'])}.")
+
+        st.subheader("Save a watchlist")
+        with st.form("save_research_watchlist"):
+            watchlist_name = st.text_input("Watchlist name", "My research ideas")
+            selected_symbols = st.multiselect("Symbols to save", ranking["Symbol"].tolist(), default=ranking["Symbol"].head(3).tolist())
+            alert_score = st.slider("Show an in-app alert when research score is at least", 0, 100, 75)
+            save_watchlist_clicked = st.form_submit_button("Save watchlist and alert rule")
+        if save_watchlist_clicked:
+            try:
+                watchlist_id = save_watchlist(
+                    watchlist_name,
+                    st.session_state.get("screener_source", screener_universe),
+                    selected_symbols,
+                    asset_type,
+                    alert_score,
                 )
-                st.caption("Use the symbols as ideas for separate paper-trading and walk-forward validation. A high score does not mean a trade will be profitable.")
-                if unavailable:
-                    st.caption(f"Unavailable in this run: {', '.join(unavailable)}.")
+            except ValueError as error:
+                st.error(str(error))
+            else:
+                st.success(f"Saved watchlist #{watchlist_id}. Its score alert will be checked whenever you run a screener.")
+
+        alerts = research_alerts(ranking)
+        st.subheader("Current in-app alerts")
+        if alerts.empty:
+            st.info("No saved watchlist symbols meet their score-alert threshold in this screen.")
+        else:
+            st.warning(f"{len(alerts)} saved watchlist alert(s) triggered in this screen.")
+            st.dataframe(alerts, use_container_width=True, hide_index=True)
+
+    with st.expander("Saved watchlists"):
+        saved_watchlists = list_watchlists()
+        if saved_watchlists.empty:
+            st.info("Save a screen result above to create your first watchlist.")
+        else:
+            st.dataframe(saved_watchlists, use_container_width=True, hide_index=True)
     st.stop()
 
 if portfolio_enabled:
