@@ -4,13 +4,21 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="eed7932f-09b5-4ff2-8e05-af4f2053086b" name="Changes" comment="Improve ensemble model with tuned classifiers">
-      <change beforePath="$PROJECT_DIR$/.gitignore.py" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" />
+    <list default="true" id="eed7932f-09b5-4ff2-8e05-af4f2053086b" name="Changes" comment="feat: add login and store on supabase">
+      <change afterPath="$PROJECT_DIR$/.dockerignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docker-compose.yml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gitignore.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/app.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/logs/trade_log.csv" beforeDir="false" afterPath="$PROJECT_DIR$/logs/trade_log.csv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/models/price_predictor.py" beforeDir="false" afterPath="$PROJECT_DIR$/models/price_predictor.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/strategy/ensemble_strategy.py" beforeDir="false" afterPath="$PROJECT_DIR$/strategy/ensemble_strategy.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/testing/walk_forward.py" beforeDir="false" afterPath="$PROJECT_DIR$/testing/walk_forward.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/strategy/crypto_ai_validation.py" beforeDir="false" afterPath="$PROJECT_DIR$/strategy/crypto_ai_validation.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/strategy/intraday_ai_validation.py" beforeDir="false" afterPath="$PROJECT_DIR$/strategy/intraday_ai_validation.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_validation.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_validation.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -32,41 +40,56 @@
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 0,
-  "fromUser": false
-}]]></component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;donovanbrooks&quot;
+  }
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/donovanbrooks/AI-Trading-Bot.git&quot;,
+    &quot;accountId&quot;: &quot;b1632ea6-a16a-4991-9125-db9f20b907fc&quot;
+  }
+}</component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 0,
+  &quot;fromUser&quot;: false
+}</component>
   <component name="ProjectId" id="3GbRif3AM5KPbc0Si4AX2qsIxdu" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
     <option name="sortKey" value="BY_TIME_ASCENDING" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.Main.executor": "Run",
-    "Python.main.executor": "Run",
-    "Python.moving_average.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "codeWithMe.voiceChat.enabledByDefault": "false",
-    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
-    "git-widget-placeholder": "ai-improvements",
-    "junie.onboarding.icon.badge.shown": "true",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "to.speed.mode.migration.done": "true",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python.Main.executor&quot;: &quot;Run&quot;,
+    &quot;Python.main.executor&quot;: &quot;Run&quot;,
+    &quot;Python.moving_average.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
+    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;reference.settingsdialog.project.grazie&quot;,
+    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/strategy" />
+      <recent name="$PROJECT_DIR$" />
       <recent name="$PROJECT_DIR$/Strategy" />
     </key>
   </component>
@@ -113,7 +136,9 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1784238410461</updated>
-      <workItem from="1784238411476" duration="37972000" />
+      <workItem from="1784238411476" duration="49378000" />
+      <workItem from="1784929175563" duration="17503000" />
+      <workItem from="1786129545315" duration="13496000" />
     </task>
     <task id="LOCAL-00001" summary="Initial working stock data download">
       <option name="closed" value="true" />
@@ -235,14 +260,101 @@
       <option name="project" value="LOCAL" />
       <updated>1784656413820</updated>
     </task>
-    <option name="localTasksCounter" value="16" />
+    <task id="LOCAL-00016" summary="Added multi-stock testing pipeline">
+      <option name="closed" value="true" />
+      <created>1784929881477</created>
+      <option name="number" value="00016" />
+      <option name="presentableId" value="LOCAL-00016" />
+      <option name="project" value="LOCAL" />
+      <updated>1784929881477</updated>
+    </task>
+    <task id="LOCAL-00017" summary="Added multi-stock testing pipeline">
+      <option name="closed" value="true" />
+      <created>1785027156576</created>
+      <option name="number" value="00017" />
+      <option name="presentableId" value="LOCAL-00017" />
+      <option name="project" value="LOCAL" />
+      <updated>1785027156576</updated>
+    </task>
+    <task id="LOCAL-00018" summary="Add realistic backtesting and walk-forward validation framework">
+      <option name="closed" value="true" />
+      <created>1785027862226</created>
+      <option name="number" value="00018" />
+      <option name="presentableId" value="LOCAL-00018" />
+      <option name="project" value="LOCAL" />
+      <updated>1785027862226</updated>
+    </task>
+    <task id="LOCAL-00019" summary="feat: add walk-forward AI validation with next-day trade execution">
+      <option name="closed" value="true" />
+      <created>1785029157077</created>
+      <option name="number" value="00019" />
+      <option name="presentableId" value="LOCAL-00019" />
+      <option name="project" value="LOCAL" />
+      <updated>1785029157078</updated>
+    </task>
+    <task id="LOCAL-00020" summary="feat: add local backtest persistence with SQLite">
+      <option name="closed" value="true" />
+      <created>1785031535384</created>
+      <option name="number" value="00020" />
+      <option name="presentableId" value="LOCAL-00020" />
+      <option name="project" value="LOCAL" />
+      <updated>1785031535384</updated>
+    </task>
+    <task id="LOCAL-00021" summary="feat: integrate Alpaca paper trading with safety controls">
+      <option name="closed" value="true" />
+      <created>1785035727766</created>
+      <option name="number" value="00021" />
+      <option name="presentableId" value="LOCAL-00021" />
+      <option name="project" value="LOCAL" />
+      <updated>1785035727766</updated>
+    </task>
+    <task id="LOCAL-00022" summary="feat: improve strategy and add crypto ai direction model">
+      <option name="closed" value="true" />
+      <created>1786131079337</created>
+      <option name="number" value="00022" />
+      <option name="presentableId" value="LOCAL-00022" />
+      <option name="project" value="LOCAL" />
+      <updated>1786131079338</updated>
+    </task>
+    <task id="LOCAL-00023" summary="feat: app foundation">
+      <option name="closed" value="true" />
+      <created>1786132660705</created>
+      <option name="number" value="00023" />
+      <option name="presentableId" value="LOCAL-00023" />
+      <option name="project" value="LOCAL" />
+      <updated>1786132660705</updated>
+    </task>
+    <task id="LOCAL-00024" summary="feat: enable multi-ticker portfolio backtest">
+      <option name="closed" value="true" />
+      <created>1786134294136</created>
+      <option name="number" value="00024" />
+      <option name="presentableId" value="LOCAL-00024" />
+      <option name="project" value="LOCAL" />
+      <updated>1786134294136</updated>
+    </task>
+    <task id="LOCAL-00025" summary="feat: enable top 10 research screener">
+      <option name="closed" value="true" />
+      <created>1786135085048</created>
+      <option name="number" value="00025" />
+      <option name="presentableId" value="LOCAL-00025" />
+      <option name="project" value="LOCAL" />
+      <updated>1786135085048</updated>
+    </task>
+    <task id="LOCAL-00026" summary="feat: add login and store on supabase">
+      <option name="closed" value="true" />
+      <created>1786146294512</created>
+      <option name="number" value="00026" />
+      <option name="presentableId" value="LOCAL-00026" />
+      <option name="project" value="LOCAL" />
+      <updated>1786146294512</updated>
+    </task>
+    <option name="localTasksCounter" value="27" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Initial working stock data download" />
     <MESSAGE value="Initial trading bot setup add gitignore" />
     <MESSAGE value="Add moving average trading strategy" />
     <MESSAGE value="Add first backtesting system" />
@@ -257,11 +369,22 @@
     <MESSAGE value="git status" />
     <MESSAGE value="Add confidence-weighted ensemble strategy" />
     <MESSAGE value="Improve ensemble model with tuned classifiers" />
-    <option name="LAST_COMMIT_MESSAGE" value="Improve ensemble model with tuned classifiers" />
+    <MESSAGE value="Add Streamlit trading dashboard and improve AI feature engineering" />
+    <MESSAGE value="Added multi-stock testing pipeline" />
+    <MESSAGE value="Add realistic backtesting and walk-forward validation framework" />
+    <MESSAGE value="feat: add walk-forward AI validation with next-day trade execution" />
+    <MESSAGE value="feat: add local backtest persistence with SQLite" />
+    <MESSAGE value="feat: integrate Alpaca paper trading with safety controls" />
+    <MESSAGE value="feat: improve strategy and add crypto ai direction model" />
+    <MESSAGE value="feat: app foundation" />
+    <MESSAGE value="feat: enable multi-ticker portfolio backtest" />
+    <MESSAGE value="feat: enable top 10 research screener" />
+    <MESSAGE value="feat: add login and store on supabase" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: add login and store on supabase" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/AI_Trading_Bot$Main.coverage" NAME="Main Coverage Results" MODIFIED="1784238796006" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/AI_Trading_Bot$main.coverage" NAME="main Coverage Results" MODIFIED="1784662732800" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/AI_Trading_Bot$main.coverage" NAME="main Coverage Results" MODIFIED="1786142550502" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/AI_Trading_Bot$moving_average.coverage" NAME="moving_average Coverage Results" MODIFIED="1784240792092" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

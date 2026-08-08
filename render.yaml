@@ -2,6 +2,7 @@ services:
   - type: web
     name: trading-bot
     runtime: docker
+    plan: free
     healthCheckPath: /_stcore/health
     envVars:
       - key: PYTHONUNBUFFERED
