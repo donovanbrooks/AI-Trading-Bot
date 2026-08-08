@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 
 from storage import list_recent_runs, save_backtest_run
 from strategy.ai_validation import generate_ai_signals
-from strategy.intraday_ai_validation import generate_intraday_ai_signals
+from strategy.intraday_ai_validation import bullish_candlestick_patterns, generate_intraday_ai_signals
 from strategy.crypto_ai_validation import generate_crypto_ai_signals
 from validation import BacktestConfig, calculate_metrics, run_backtest, walk_forward_validate
 
@@ -87,6 +87,11 @@ def test_intraday_ai_uses_regular_session_and_forces_daily_exit():
     assert all("09:35:00" <= value.isoformat() <= "15:55:00" for value in signals.index.time)
     assert signals[signals["Session Time"].astype(str) == "15:55:00"]["Execution Signal"].eq(-1).all()
     assert signals["AI Probability"].notna().any()
+
+
+def test_bullish_candle_filter_identifies_engulfing_pattern():
+    bars = pd.DataFrame({"Open": [10.0, 8.0], "High": [10.5, 11.0], "Low": [8.5, 7.5], "Close": [9.0, 10.5]})
+    assert bullish_candlestick_patterns(bars).tolist() == [False, True]
 
 
 def test_crypto_ai_generates_24_hour_predictions():

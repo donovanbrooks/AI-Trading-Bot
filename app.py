@@ -150,6 +150,7 @@ with st.sidebar:
             train_bars = st.number_input("Training history (five-minute bars)", min_value=390, value=780, step=78)
             test_bars = 78
             ai_threshold = st.slider("AI confidence threshold", min_value=0.51, max_value=0.75, value=0.58, step=0.01)
+            candle_confirmation = st.checkbox("Require bullish candlestick confirmation", value=True)
             short_window, long_window = 20, 50
         elif strategy_type == "Crypto AI direction model":
             period = st.selectbox("Five-minute crypto history", ["30d", "60d"])
@@ -158,6 +159,11 @@ with st.sidebar:
             train_bars = st.number_input("Training history (five-minute bars)", min_value=1_008, value=2_016, step=288)
             test_bars = 288
             ai_threshold = st.slider("AI confidence threshold", min_value=0.51, max_value=0.80, value=0.60, step=0.01)
+            candle_confirmation = st.checkbox("Require bullish candlestick confirmation", value=True)
+            crypto_trend_filter = st.checkbox("Only buy above 50-bar trend average", value=True)
+            crypto_position_size = st.slider("Crypto maximum position size (% of cash)", 1, 25, 5)
+            crypto_stop_loss = st.slider("Crypto simulated stop loss (%)", 2.0, 30.0, 8.0, 0.5)
+            crypto_daily_loss = st.slider("Crypto 24-hour loss lockout (%)", 0.5, 15.0, 3.0, 0.5)
             short_window, long_window = 20, 50
         else:
             period = st.selectbox("History", ["1y", "2y", "5y"], index=2)
@@ -167,6 +173,9 @@ with st.sidebar:
             train_bars = st.number_input("Training history (trading days)", min_value=60, value=252, step=21)
             test_bars = st.number_input("Out-of-sample window (trading days)", min_value=10, value=63, step=21)
             ai_threshold = st.slider("AI confidence threshold", min_value=0.51, max_value=0.75, value=0.55, step=0.01)
+            candle_confirmation = False
+            crypto_trend_filter = False
+            crypto_position_size, crypto_stop_loss, crypto_daily_loss = position_size, stop_loss, max_daily_loss
 
 if screener_enabled:
     st.header("Top 10 US research screener")
@@ -318,6 +327,10 @@ if strategy_type == "Moving-average crossover" and short_window >= long_window:
     st.error("The short moving average must be smaller than the long moving average.")
     st.stop()
 
+if strategy_type == "Crypto AI direction model" and "-" not in ticker:
+    ticker = "BTC-USD"
+    st.info("Crypto mode uses a crypto ticker. Loaded BTC-USD instead of the previous stock ticker.")
+
 try:
     with st.spinner(f"Loading {ticker}..."):
         prices = load_intraday_prices(ticker, period, crypto=strategy_type == "Crypto AI direction model") if strategy_type in {"Day-trading AI direction model", "Crypto AI direction model"} else load_prices(ticker, period)
@@ -334,10 +347,10 @@ if prices.empty or len(prices) < minimum_bars:
 config = BacktestConfig(
     initial_cash=initial_cash,
     trading_cost_bps=fee_bps,
-    position_size_pct=position_size / 100,
+    position_size_pct=(crypto_position_size if strategy_type == "Crypto AI direction model" else position_size) / 100,
     max_trades_per_day=int(max_trades_per_day),
-    max_daily_loss_pct=max_daily_loss / 100,
-    stop_loss_pct=stop_loss / 100,
+    max_daily_loss_pct=(crypto_daily_loss if strategy_type == "Crypto AI direction model" else max_daily_loss) / 100,
+    stop_loss_pct=(crypto_stop_loss if strategy_type == "Crypto AI direction model" else stop_loss) / 100,
 )
 if strategy_type == "Day-trading AI direction model":
     with st.spinner("Generating intraday expanding-window AI predictions..."):
@@ -345,6 +358,7 @@ if strategy_type == "Day-trading AI direction model":
             prices,
             train_bars=int(train_bars),
             probability_threshold=ai_threshold,
+            require_bullish_candle=candle_confirmation,
         )
 elif strategy_type == "Crypto AI direction model":
     with st.spinner("Generating 24/7 crypto AI predictions..."):
@@ -352,6 +366,8 @@ elif strategy_type == "Crypto AI direction model":
             prices,
             train_bars=int(train_bars),
             probability_threshold=ai_threshold,
+            require_bullish_candle=candle_confirmation,
+            require_trend_filter=crypto_trend_filter,
         )
 elif strategy_type == "AI direction model":
     with st.spinner("Generating expanding-window AI predictions..."):
@@ -383,7 +399,35 @@ if metrics["blocked_entries"]:
     st.caption(f"Trade-quality gate blocked {metrics['blocked_entries']} entry signal(s).")
 
 price_chart = go.Figure()
-price_chart.add_trace(go.Scatter(x=results.index, y=results["Close"], name="Close", line={"color": "#9ec5fe"}))
+if strategy_type == "Day-trading AI direction model":
+    price_chart.add_trace(
+        go.Candlestick(
+            x=results.index,
+            open=results["Open"],
+            high=results["High"],
+            low=results["Low"],
+            close=results["Close"],
+            name="Five-minute candles",
+            increasing_line_color="#2ecc71",
+            decreasing_line_color="#e74c3c",
+        )
+    )
+    bullish_candles = results[results.get("Bullish Candle", pd.Series(False, index=results.index)).astype(bool)]
+    if not bullish_candles.empty:
+        price_chart.add_trace(
+            go.Scatter(
+                x=bullish_candles.index,
+                y=bullish_candles["Low"] * 0.999,
+                mode="markers",
+                name="Bullish candle pattern",
+                marker={"color": "#f1c40f", "symbol": "diamond", "size": 8, "line": {"color": "#ffffff", "width": 1}},
+                hovertemplate="Bullish engulfing or hammer<br>%{x}<extra></extra>",
+            )
+        )
+    if strategy_type == "Crypto AI direction model":
+        price_chart.add_trace(go.Scatter(x=results.index, y=results["Trend MA 50"], name="50-bar trend", line={"color": "#9ec5fe"}))
+else:
+    price_chart.add_trace(go.Scatter(x=results.index, y=results["Close"], name="Close", line={"color": "#9ec5fe"}))
 if strategy_type == "Moving-average crossover":
     price_chart.add_trace(go.Scatter(x=results.index, y=results["Short MA"], name=f"MA {short_window}"))
     price_chart.add_trace(go.Scatter(x=results.index, y=results["Long MA"], name=f"MA {long_window}"))
@@ -406,7 +450,7 @@ if not trades.empty:
             marker={"color": "#e74c3c", "symbol": "triangle-down", "size": 11},
         )
     )
-price_chart.update_layout(title=f"{ticker} strategy", height=480, xaxis_title="Date", yaxis_title="Price ($)")
+price_chart.update_layout(title=f"{ticker} strategy", height=480, xaxis_title="Date", yaxis_title="Price ($)", xaxis_rangeslider_visible=False)
 st.plotly_chart(price_chart, use_container_width=True)
 
 equity_chart = go.Figure(go.Scatter(x=results.index, y=results["Equity"], name="Portfolio equity", fill="tozeroy"))

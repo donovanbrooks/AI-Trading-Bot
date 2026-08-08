@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: trading-bot
+    runtime: docker
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: ALPACA_PAPER
+        value: "true"
+      - key: APP_BASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: APP_ENCRYPTION_KEY
+        generateValue: true
+      - key: APCA_API_KEY_ID
+        sync: false
+      - key: APCA_API_SECRET_KEY
+        sync: false
+      - key: TWELVE_DATA_API_KEY
+        sync: false

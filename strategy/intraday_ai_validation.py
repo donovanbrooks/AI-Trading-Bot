@@ -23,6 +23,22 @@ INTRADAY_FEATURES = [
 ]
 
 
+def bullish_candlestick_patterns(data: pd.DataFrame) -> pd.Series:
+    """Identify conservative bullish engulfing and hammer confirmation bars."""
+    previous_open, previous_close = data["Open"].shift(1), data["Close"].shift(1)
+    body = (data["Close"] - data["Open"]).abs().clip(lower=1e-12)
+    lower_wick = data[["Open", "Close"]].min(axis=1) - data["Low"]
+    upper_wick = data["High"] - data[["Open", "Close"]].max(axis=1)
+    engulfing = (
+        (previous_close < previous_open)
+        & (data["Close"] > data["Open"])
+        & (data["Open"] <= previous_close)
+        & (data["Close"] >= previous_open)
+    )
+    hammer = (data["Close"] > data["Open"]) & (lower_wick >= 2 * body) & (upper_wick <= body)
+    return (engulfing | hammer).fillna(False)
+
+
 def _regular_session(data: pd.DataFrame) -> pd.DataFrame:
     """Keep 09:35–15:55 New York bars, leaving room for a next-bar exit."""
     frame = data.copy()
@@ -71,6 +87,7 @@ def generate_intraday_ai_signals(
     probability_threshold: float = 0.58,
     horizon_bars: int = 3,
     minimum_move_bps: float = 8,
+    require_bullish_candle: bool = False,
 ) -> pd.DataFrame:
     """Return five-minute signals fitted only on earlier intraday observations."""
     if not 0.5 < probability_threshold < 1:
@@ -82,6 +99,7 @@ def generate_intraday_ai_signals(
     result = features[["Open", "High", "Low", "Close", "Volume", "Session Date", "Session Time"]].copy()
     result["AI Probability"] = np.nan
     result["Signal"] = 0
+    result["Bullish Candle"] = bullish_candlestick_patterns(result)
     for start in range(train_bars, len(features), retrain_bars):
         training = features.iloc[:start].dropna(subset=["target"])
         prediction = features.iloc[start:start + retrain_bars]
@@ -100,6 +118,8 @@ def generate_intraday_ai_signals(
 
     result.loc[result["AI Probability"] >= probability_threshold, "Signal"] = 1
     result.loc[result["AI Probability"] <= 1 - probability_threshold, "Signal"] = -1
+    if require_bullish_candle:
+        result.loc[(result["Signal"] == 1) & ~result["Bullish Candle"], "Signal"] = 0
     # Flatten by 15:55 ET: the prior 15:50 signal is filled at 15:55.
     result.loc[result["Session Time"].astype(str) == "15:50:00", "Signal"] = -1
     result["Execution Signal"] = result["Signal"].shift(1).fillna(0).astype(int)

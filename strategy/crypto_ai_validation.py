@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
+from strategy.intraday_ai_validation import bullish_candlestick_patterns
 
 
 CRYPTO_FEATURES = ["return_1", "return_6", "rsi_14", "volatility_24", "range_pct", "volume_zscore"]
@@ -36,6 +37,8 @@ def generate_crypto_ai_signals(
     probability_threshold: float = 0.60,
     horizon_bars: int = 6,
     minimum_move_bps: float = 10,
+    require_bullish_candle: bool = True,
+    require_trend_filter: bool = True,
 ) -> pd.DataFrame:
     """Generate 24/7 signals from expanding-window, five-minute crypto data."""
     if not 0.5 < probability_threshold < 1:
@@ -47,6 +50,8 @@ def generate_crypto_ai_signals(
     result = features[["Open", "High", "Low", "Close", "Volume"]].copy()
     result["AI Probability"] = np.nan
     result["Signal"] = 0
+    result["Trend MA 50"] = result["Close"].rolling(50).mean()
+    result["Bullish Candle"] = bullish_candlestick_patterns(result)
     for start in range(train_bars, len(features), retrain_bars):
         training = features.iloc[:start].dropna(subset=["target"])
         prediction = features.iloc[start:start + retrain_bars]
@@ -65,5 +70,9 @@ def generate_crypto_ai_signals(
 
     result.loc[result["AI Probability"] >= probability_threshold, "Signal"] = 1
     result.loc[result["AI Probability"] <= 1 - probability_threshold, "Signal"] = -1
+    if require_bullish_candle:
+        result.loc[(result["Signal"] == 1) & ~result["Bullish Candle"], "Signal"] = 0
+    if require_trend_filter:
+        result.loc[(result["Signal"] == 1) & (result["Close"] <= result["Trend MA 50"]) , "Signal"] = 0
     result["Execution Signal"] = result["Signal"].shift(1).fillna(0).astype(int)
     return result
