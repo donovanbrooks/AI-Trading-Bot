@@ -87,6 +87,24 @@ def get_paper_portfolio() -> dict[str, list[dict[str, str]]]:
     return {"positions": positions, "orders": recent_orders}
 
 
+def lookup_paper_asset(symbol: str, asset_type: str) -> dict[str, str]:
+    """Validate a user-selected stock or crypto pair before an order review."""
+    normalized_symbol = symbol.strip().upper()
+    if asset_type == "crypto":
+        normalized_symbol = normalized_symbol.replace("-", "/")
+        valid = re.fullmatch(r"[A-Z]{2,10}/[A-Z]{2,10}", normalized_symbol)
+    else:
+        valid = re.fullmatch(r"[A-Z.]{1,10}", normalized_symbol)
+    if not valid:
+        example = "BTC/USD" if asset_type == "crypto" else "AAPL"
+        raise BrokerConfigurationError(f"Enter a valid {asset_type} symbol, such as {example}.")
+    asset = _paper_client().get_asset(normalized_symbol)
+    actual_type = str(asset.asset_class).lower()
+    if not asset.tradable or (asset_type == "crypto" and "crypto" not in actual_type) or (asset_type == "equity" and "equity" not in actual_type):
+        raise BrokerConfigurationError(f"{normalized_symbol} is not a tradable Alpaca paper {asset_type} asset.")
+    return {"symbol": normalized_symbol, "name": str(getattr(asset, "name", normalized_symbol)), "asset_type": asset_type}
+
+
 def _assert_safe_to_open(client: Any, symbol: str) -> None:
     """Block duplicate orders and additional exposure in an existing position."""
     from alpaca.trading.enums import QueryOrderStatus

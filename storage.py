@@ -96,7 +96,50 @@ def initialize_database(database_path: Path = DEFAULT_DATABASE_PATH) -> None:
                 asset_type TEXT NOT NULL,
                 PRIMARY KEY (watchlist_id, symbol)
             );
+
+            CREATE TABLE IF NOT EXISTS automation_settings (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                autonomous_paper_orders INTEGER NOT NULL DEFAULT 0,
+                max_order_notional REAL NOT NULL DEFAULT 25,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             """
+        )
+
+
+def get_automation_settings(database_path: Path = DEFAULT_DATABASE_PATH) -> dict[str, float | bool]:
+    """Return the signed-in user's paper automation preference and hard cap."""
+    client, user_id = _cloud_context()
+    if client and user_id:
+        rows = client.table("automation_settings").select("autonomous_paper_orders,max_order_notional").eq("user_id", user_id).limit(1).execute().data
+        if rows:
+            return {"autonomous_paper_orders": bool(rows[0]["autonomous_paper_orders"]), "max_order_notional": float(rows[0]["max_order_notional"])}
+        return {"autonomous_paper_orders": False, "max_order_notional": 25.0}
+    initialize_database(database_path)
+    with _connect(database_path) as connection:
+        row = connection.execute("SELECT autonomous_paper_orders, max_order_notional FROM automation_settings WHERE id = 1").fetchone()
+    return {"autonomous_paper_orders": bool(row[0]) if row else False, "max_order_notional": float(row[1]) if row else 25.0}
+
+
+def save_automation_settings(enabled: bool, max_order_notional: float, database_path: Path = DEFAULT_DATABASE_PATH) -> None:
+    """Persist explicit consent for autonomous paper-only orders; live orders are never enabled."""
+    if not 1 <= max_order_notional <= 25:
+        raise ValueError("Autonomous paper orders are capped between $1 and $25 per order.")
+    client, user_id = _cloud_context()
+    if client and user_id:
+        client.table("automation_settings").upsert(
+            {"user_id": user_id, "autonomous_paper_orders": bool(enabled), "max_order_notional": float(max_order_notional)},
+            on_conflict="user_id",
+        ).execute()
+        return
+    initialize_database(database_path)
+    with _connect(database_path) as connection:
+        connection.execute(
+            """INSERT INTO automation_settings (id, autonomous_paper_orders, max_order_notional)
+            VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET
+            autonomous_paper_orders=excluded.autonomous_paper_orders,
+            max_order_notional=excluded.max_order_notional, updated_at=CURRENT_TIMESTAMP""",
+            (int(enabled), float(max_order_notional)),
         )
 
 

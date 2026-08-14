@@ -16,6 +16,7 @@ from broker import (
     MAX_PAPER_ORDER_NOTIONAL,
     get_paper_account_summary,
     get_paper_portfolio,
+    lookup_paper_asset,
     submit_confirmed_paper_buy,
     submit_confirmed_paper_crypto_buy,
 )
@@ -26,6 +27,8 @@ from storage import (
     recent_paper_order,
     record_paper_order,
     research_alerts,
+    get_automation_settings,
+    save_automation_settings,
     save_backtest_run,
     save_watchlist,
 )
@@ -37,7 +40,8 @@ from screener import US_ETF_UNIVERSE, US_STOCK_UNIVERSE, rank_research_universe
 from strategy.ai_validation import generate_ai_signals
 from strategy.intraday_ai_validation import generate_intraday_ai_signals
 from strategy.crypto_ai_validation import generate_crypto_ai_signals
-from validation import BacktestConfig, build_crossover_signals, calculate_metrics, run_backtest, walk_forward_validate
+from strategy.timing import latest_ai_assessment, rank_intraday_assessments
+from validation import BacktestConfig, build_crossover_signals, calculate_metrics, run_backtest, run_buy_and_hold_backtest, walk_forward_validate
 
 
 st.set_page_config(page_title="Trading Bot Lab", page_icon="📈", layout="wide")
@@ -85,8 +89,13 @@ with st.sidebar:
     if screener_enabled:
         st.divider()
         st.caption("Top 10 screener settings")
-        screener_universe = st.selectbox("Screen", ["US ETFs", "US large-cap stocks", "International stocks (Twelve Data)"])
-        screener_period = st.selectbox("Screener history", ["1y", "2y"], index=1)
+        screener_universe = st.selectbox("Screen", ["US ETFs", "US large-cap stocks", "International stocks (Twelve Data)", "Day-trading US stocks/ETFs", "Crypto timing (5-minute)"])
+        intraday_screen = screener_universe in {"Day-trading US stocks/ETFs", "Crypto timing (5-minute)"}
+        screener_period = st.selectbox("Screener history", ["30d", "60d"] if intraday_screen else ["1y", "2y"], index=1 if intraday_screen else 1)
+        timing_symbols = st.text_input(
+            "Symbols to check now (comma separated)",
+            "SPY, QQQ, IWM, XLK, GLD" if screener_universe == "Day-trading US stocks/ETFs" else "BTC-USD, ETH-USD, SOL-USD",
+        ) if intraday_screen else ""
         global_symbols = st.text_input(
             "International symbols (comma separated)",
             "ASML:EURONEXT, AZN:LSE, NESN:SIX, SBIN:NSE, 7203:TSE, 0700:HKEX",
@@ -180,6 +189,32 @@ with st.sidebar:
 if screener_enabled:
     st.header("Top 10 US research screener")
     st.caption("A transparent, historical-data ranking—not a prediction, personalized advice, or an order signal.")
+    intraday_screen = screener_universe in {"Day-trading US stocks/ETFs", "Crypto timing (5-minute)"}
+    if intraday_screen:
+        symbols = list(dict.fromkeys(symbol.strip().upper() for symbol in timing_symbols.split(",") if symbol.strip()))
+        st.warning("These are fast-changing model assessments from the latest completed five-minute bar—not instructions to buy. Re-run before acting; manual paper orders remain your choice.")
+        if st.button("Check current AI timing", type="primary"):
+            try:
+                with st.spinner("Refreshing five-minute model assessments..."):
+                    assessments = {}
+                    for symbol in symbols:
+                        crypto = screener_universe == "Crypto timing (5-minute)"
+                        normalized = symbol.replace("-", "/") if crypto else symbol
+                        bars = load_intraday_prices(normalized, screener_period, crypto=crypto)
+                        if crypto:
+                            signals = generate_crypto_ai_signals(bars, train_bars=1_008, require_bullish_candle=True, require_trend_filter=True)
+                        else:
+                            signals = generate_intraday_ai_signals(bars, train_bars=390, require_bullish_candle=True)
+                        assessments[symbol] = latest_ai_assessment(signals)
+                st.session_state["timing_ranking"] = rank_intraday_assessments(assessments)
+            except Exception as error:
+                logger.exception("Intraday timing screen failed")
+                st.error(f"Could not refresh AI timing: {error}")
+        timing_ranking = st.session_state.get("timing_ranking")
+        if isinstance(timing_ranking, pd.DataFrame) and not timing_ranking.empty:
+            st.subheader("Current AI timing assessments")
+            st.dataframe(timing_ranking.style.format({"AI bullish probability": "{:.1%}"}), use_container_width=True, hide_index=True)
+        st.stop()
     international_screen = screener_universe == "International stocks (Twelve Data)"
     universe = (
         [symbol.strip().upper() for symbol in global_symbols.split(",") if symbol.strip()]
@@ -381,15 +416,47 @@ else:
 results, trades = run_backtest(signals, config)
 periods_per_year = 365 * 288 if strategy_type == "Crypto AI direction model" else (252 * 78 if strategy_type == "Day-trading AI direction model" else 252)
 metrics = calculate_metrics(results, trades, initial_cash, periods_per_year=periods_per_year)
+benchmark_results, benchmark_trades = run_buy_and_hold_backtest(prices, config)
+benchmark_metrics = calculate_metrics(benchmark_results, benchmark_trades, initial_cash, periods_per_year=periods_per_year)
 final_value = float(metrics["final_value"])
 strategy_return = float(metrics["total_return"])
-buy_hold_return = float(results["Close"].iloc[-1] / results["Close"].iloc[0] - 1)
+buy_hold_return = float(benchmark_metrics["total_return"])
+return_difference = strategy_return - buy_hold_return
 
 one, two, three, four = st.columns(4)
 one.metric("Portfolio value", f"${final_value:,.2f}")
 two.metric("Strategy return", f"{strategy_return:.2%}")
 three.metric("Buy & hold", f"{buy_hold_return:.2%}")
 four.metric("Maximum drawdown", f"{metrics['max_drawdown']:.2%}")
+
+comparison = pd.DataFrame([
+    {
+        "Approach": strategy_type,
+        "Return": strategy_return,
+        "Max drawdown": metrics["max_drawdown"],
+        "Sharpe": metrics["sharpe_ratio"],
+        "Market exposure": metrics["exposure"],
+        "Completed trades": metrics["trade_count"],
+    },
+    {
+        "Approach": "Buy & hold (same estimated costs)",
+        "Return": benchmark_metrics["total_return"],
+        "Max drawdown": benchmark_metrics["max_drawdown"],
+        "Sharpe": benchmark_metrics["sharpe_ratio"],
+        "Market exposure": benchmark_metrics["exposure"],
+        "Completed trades": benchmark_metrics["trade_count"],
+    },
+])
+st.subheader("Strategy comparison")
+st.caption(
+    f"Strategy {'outperformed' if return_difference >= 0 else 'underperformed'} buy & hold by "
+    f"{abs(return_difference):.2%} over this test window. Both include the same estimated entry and exit costs."
+)
+st.dataframe(
+    comparison.style.format({"Return": "{:.2%}", "Max drawdown": "{:.2%}", "Market exposure": "{:.0%}", "Sharpe": "{:.2f}"}),
+    use_container_width=True,
+    hide_index=True,
+)
 
 st.caption(
     f"{metrics['trade_count']} completed trades · {metrics['win_rate']:.0%} win rate · "
@@ -399,7 +466,7 @@ if metrics["blocked_entries"]:
     st.caption(f"Trade-quality gate blocked {metrics['blocked_entries']} entry signal(s).")
 
 price_chart = go.Figure()
-if strategy_type == "Day-trading AI direction model":
+if strategy_type in {"Day-trading AI direction model", "Crypto AI direction model"}:
     price_chart.add_trace(
         go.Candlestick(
             x=results.index,
@@ -508,7 +575,7 @@ with st.expander("Recent saved backtests"):
         st.dataframe(saved_runs, use_container_width=True, hide_index=True)
 
 st.subheader("Alpaca paper account")
-st.caption("Connection check only. This app does not submit orders yet.")
+st.caption("Paper-only broker connection. Manual orders always remain available to you.")
 if st.button("Check paper account connection"):
     try:
         account = get_paper_account_summary()
@@ -523,33 +590,114 @@ if st.button("Check paper account connection"):
         account_columns[2].metric("Paper equity", f"${account['equity']:,.2f}")
         st.success(f"Connected to paper account {account['account_number']} ({account['status']}).")
 
-if strategy_type != "Crypto AI direction model":
-    manual_order_title = "Manual paper buy"
-else:
-    manual_order_title = "Manual paper crypto buy"
-
-with st.expander(manual_order_title):
-    st.warning("This sends a real order to your Alpaca PAPER account. It cannot use real-money credentials.")
-    with st.form("manual_paper_buy", clear_on_submit=False):
-        paper_symbol = st.text_input("Crypto pair (for example BTC/USD)" if strategy_type == "Crypto AI direction model" else "US stock symbol", value="BTC/USD" if strategy_type == "Crypto AI direction model" else ticker, max_chars=10).upper()
-        paper_notional = st.number_input("Dollar amount", min_value=1.0, max_value=MAX_PAPER_ORDER_NOTIONAL, value=5.0, step=1.0)
-        confirmation = st.checkbox(f"I confirm a paper-market buy of up to ${paper_notional:.2f} may be submitted.")
-        submit_paper_buy = st.form_submit_button("Submit paper crypto buy" if strategy_type == "Crypto AI direction model" else "Submit paper buy")
-    if submit_paper_buy:
-        if not confirmation:
-            st.error("Check the confirmation box before submitting a paper order.")
+with st.expander("AI paper-order permission"):
+    automation = get_automation_settings()
+    st.caption("Default: AI creates suggestions and you approve every order. This setting never enables live trading.")
+    with st.form("automation_permission"):
+        autonomous_orders = st.checkbox(
+            "Allow autonomous paper orders within the hard safety limits below",
+            value=bool(automation["autonomous_paper_orders"]),
+        )
+        autonomous_cap = st.number_input(
+            "Maximum autonomous order amount ($)",
+            min_value=1.0,
+            max_value=MAX_PAPER_ORDER_NOTIONAL,
+            value=float(automation["max_order_notional"]),
+            step=1.0,
+        )
+        acknowledgement = st.checkbox("I understand this applies only to Alpaca paper orders and I can turn it off at any time.")
+        save_automation = st.form_submit_button("Save paper-order permission")
+    if save_automation:
+        if autonomous_orders and not acknowledgement:
+            st.error("Confirm that you understand the paper-only permission before enabling it.")
         else:
             try:
-                if recent_paper_order(paper_symbol):
-                    raise BrokerConfigurationError(f"A {paper_symbol} order was submitted recently. Refresh orders before trying again.")
-                order = submit_confirmed_paper_crypto_buy(paper_symbol, paper_notional) if strategy_type == "Crypto AI direction model" else submit_confirmed_paper_buy(paper_symbol, paper_notional)
-            except BrokerConfigurationError as error:
-                st.warning(str(error))
-            except Exception as error:
-                st.error(f"Paper order was not submitted: {error}")
+                save_automation_settings(autonomous_orders, autonomous_cap)
+            except ValueError as error:
+                st.error(str(error))
             else:
-                record_paper_order(order["id"], order["symbol"], "crypto" if strategy_type == "Crypto AI direction model" else "equity", paper_notional, order["status"])
-                st.success(f"Paper order submitted: {order['symbol']} · {order['status']} · ID {order['id']}")
+                state = "enabled" if autonomous_orders else "disabled"
+                st.success(f"Autonomous paper-order eligibility is {state}. Live trading remains disabled.")
+    if automation["autonomous_paper_orders"]:
+        st.warning("Autonomous paper-order eligibility is on. A scheduled automation worker is not connected yet, so no strategy orders are being placed automatically today.")
+    else:
+        st.info("AI-generated orders require your approval. You can still submit manual paper buys below.")
+
+st.subheader("Trade ticket")
+st.caption("Search a US stock/ETF or supported crypto pair, choose a dollar amount, then either submit a paper buy yourself or hand it to the AI paper-order queue.")
+ticket_type = st.radio("What do you want to trade?", ["Stock or ETF", "Crypto"], horizontal=True)
+asset_type = "crypto" if ticket_type == "Crypto" else "equity"
+ticket_default = "BTC/USD" if asset_type == "crypto" else ticker
+with st.form("paper_trade_ticket", clear_on_submit=False):
+    ticket_symbol = st.text_input(
+        "Search symbol or pair",
+        value=ticket_default,
+        help="Examples: AAPL, SPY, NVDA, BTC/USD, ETH/USD.",
+    )
+    ticket_notional = st.number_input("How much do you want to invest? ($)", min_value=1.0, max_value=MAX_PAPER_ORDER_NOTIONAL, value=5.0, step=1.0)
+    ticket_mode = st.radio("Who decides when to submit?", ["I approve every paper order", "AI-managed paper order"], horizontal=True)
+    review_trade = st.form_submit_button("Review trade")
+
+if review_trade:
+    try:
+        st.session_state["ticket_asset"] = lookup_paper_asset(ticket_symbol, asset_type)
+        st.session_state["ticket_notional"] = ticket_notional
+        st.session_state["ticket_mode"] = ticket_mode
+        with st.spinner("Checking the latest completed AI signal..."):
+            ticket_bars = load_intraday_prices(
+                st.session_state["ticket_asset"]["symbol"],
+                "30d",
+                crypto=asset_type == "crypto",
+            )
+            ticket_signals = (
+                generate_crypto_ai_signals(ticket_bars, train_bars=1_008, require_bullish_candle=True, require_trend_filter=True)
+                if asset_type == "crypto"
+                else generate_intraday_ai_signals(ticket_bars, train_bars=390, require_bullish_candle=True)
+            )
+            st.session_state["ticket_assessment"] = latest_ai_assessment(ticket_signals)
+    except BrokerConfigurationError as error:
+        st.warning(str(error))
+    except Exception as error:
+        st.error(f"Could not look up that paper-trading asset: {error}")
+
+ticket_asset = st.session_state.get("ticket_asset")
+if ticket_asset:
+    st.success(f"Selected: {ticket_asset['symbol']} · {ticket_asset['name']}")
+    selected_notional = float(st.session_state.get("ticket_notional", 5.0))
+    selected_mode = st.session_state.get("ticket_mode", "I approve every paper order")
+    assessment = st.session_state.get("ticket_assessment")
+    if assessment:
+        probability = assessment["probability"]
+        probability_text = f" · model confidence {probability:.1%}" if probability is not None else ""
+        if assessment["status"] == "Bullish entry setup":
+            st.success(f"AI research status: {assessment['status']}{probability_text}. {assessment['reason']}")
+        else:
+            st.warning(f"AI caution: {assessment['status']}{probability_text}. {assessment['reason']} You can still make your own paper-trading decision.")
+    if selected_mode == "AI-managed paper order":
+        automation = get_automation_settings()
+        if not automation["autonomous_paper_orders"]:
+            st.info("AI-managed mode is off for your account. Enable it in AI paper-order permission, or choose manual approval.")
+        elif selected_notional > float(automation["max_order_notional"]):
+            st.warning(f"Your AI paper-order cap is ${automation['max_order_notional']:.2f}. Lower the amount or update the cap.")
+        else:
+            st.info("This trade is eligible for AI-managed paper execution. The scheduled AI worker is the next feature to connect; no order is sent yet.")
+    else:
+        confirmation = st.checkbox(f"I confirm a paper-market buy of up to ${selected_notional:.2f} for {ticket_asset['symbol']} may be submitted.")
+        if st.button("Submit my paper buy", type="primary"):
+            if not confirmation:
+                st.error("Check the confirmation box before submitting a paper order.")
+            else:
+                try:
+                    if recent_paper_order(ticket_asset["symbol"]):
+                        raise BrokerConfigurationError(f"A {ticket_asset['symbol']} order was submitted recently. Refresh orders before trying again.")
+                    order = submit_confirmed_paper_crypto_buy(ticket_asset["symbol"], selected_notional) if ticket_asset["asset_type"] == "crypto" else submit_confirmed_paper_buy(ticket_asset["symbol"], selected_notional)
+                except BrokerConfigurationError as error:
+                    st.warning(str(error))
+                except Exception as error:
+                    st.error(f"Paper order was not submitted: {error}")
+                else:
+                    record_paper_order(order["id"], order["symbol"], ticket_asset["asset_type"], selected_notional, order["status"])
+                    st.success(f"Paper order submitted: {order['symbol']} · {order['status']} · ID {order['id']}")
 
 st.subheader("Paper positions and orders")
 if st.button("Refresh paper positions and orders"):

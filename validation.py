@@ -144,6 +144,40 @@ def run_backtest(data: pd.DataFrame, config: BacktestConfig) -> tuple[pd.DataFra
     return result, pd.DataFrame(trades)
 
 
+def run_buy_and_hold_backtest(data: pd.DataFrame, config: BacktestConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Run a fully invested benchmark using the same costs as a strategy."""
+    required_columns = {"Open", "Close"}
+    missing = required_columns.difference(data.columns)
+    if missing:
+        raise ValueError(f"Missing required buy-and-hold columns: {sorted(missing)}")
+    if data.empty:
+        raise ValueError("Cannot backtest an empty dataframe")
+
+    first_open = float(data["Open"].iloc[0])
+    final_close = float(data["Close"].iloc[-1])
+    shares = config.initial_cash / (first_open * (1 + config.cost_rate))
+    equity = shares * data["Close"].astype(float)
+    final_value = float(equity.iloc[-1]) * (1 - config.cost_rate)
+    equity.iloc[-1] = final_value
+
+    result = data.copy()
+    result["Equity"] = equity
+    result["In Market"] = True
+    result["Entry Blocked"] = ""
+    result["Drawdown"] = result["Equity"] / result["Equity"].cummax() - 1
+    trades = pd.DataFrame([{
+        "Entry Date": data.index[0],
+        "Exit Date": data.index[-1],
+        "Entry Price": first_open,
+        "Exit Price": final_close,
+        "Shares": shares,
+        "Exit Reason": "End of test",
+        "Return": final_value / config.initial_cash - 1,
+        "Net P&L": final_value - config.initial_cash,
+    }])
+    return result, trades
+
+
 def calculate_metrics(
     results: pd.DataFrame,
     trades: pd.DataFrame,

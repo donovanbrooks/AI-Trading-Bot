@@ -7,7 +7,7 @@ from storage import list_recent_runs, save_backtest_run
 from strategy.ai_validation import generate_ai_signals
 from strategy.intraday_ai_validation import bullish_candlestick_patterns, generate_intraday_ai_signals
 from strategy.crypto_ai_validation import generate_crypto_ai_signals
-from validation import BacktestConfig, calculate_metrics, run_backtest, walk_forward_validate
+from validation import BacktestConfig, calculate_metrics, run_backtest, run_buy_and_hold_backtest, walk_forward_validate
 
 
 def price_data(days=320):
@@ -41,6 +41,16 @@ def test_metrics_has_risk_fields():
     metrics = calculate_metrics(results, trades, 10_000)
 
     assert {"sharpe_ratio", "max_drawdown", "profit_factor"}.issubset(metrics)
+
+
+def test_buy_and_hold_benchmark_applies_costs_and_stays_in_market():
+    data = price_data(3)
+    results, trades = run_buy_and_hold_backtest(data, BacktestConfig(initial_cash=1_000, trading_cost_bps=100))
+
+    assert results["In Market"].all()
+    assert len(trades) == 1
+    assert trades.iloc[0]["Exit Reason"] == "End of test"
+    assert results["Equity"].iloc[-1] < 1_020
 
 
 def test_ai_signal_generation_does_not_fill_before_training_period():
