@@ -10,6 +10,7 @@ from typing import Any
 
 import pandas as pd
 from dotenv import load_dotenv
+from credentials import CredentialError, decrypt_secret, encrypt_secret
 
 
 DEFAULT_DATABASE_PATH = Path("data/trading_bot.db")
@@ -109,8 +110,76 @@ def initialize_database(database_path: Path = DEFAULT_DATABASE_PATH) -> None:
                 profile_json TEXT NOT NULL,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS encrypted_credentials (
+                provider TEXT PRIMARY KEY,
+                encrypted_value TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             """
         )
+
+
+def save_paper_broker_credentials(api_key: str, api_secret: str, database_path: Path = DEFAULT_DATABASE_PATH) -> None:
+    """Encrypt and persist the current user's Alpaca paper credentials only."""
+    if not api_key.strip() or not api_secret.strip():
+        raise ValueError("Both the Alpaca paper API key and secret are required.")
+    encrypted_value = encrypt_secret(json.dumps({"api_key": api_key.strip(), "api_secret": api_secret.strip()}))
+    client, user_id = _cloud_context()
+    if client and user_id:
+        client.table("encrypted_credentials").upsert(
+            {"user_id": user_id, "provider": "alpaca_paper", "encrypted_value": encrypted_value},
+            on_conflict="user_id,provider",
+        ).execute()
+        return
+    initialize_database(database_path)
+    with _connect(database_path) as connection:
+        connection.execute(
+            """INSERT INTO encrypted_credentials (provider, encrypted_value) VALUES ('alpaca_paper', ?)
+            ON CONFLICT(provider) DO UPDATE SET encrypted_value=excluded.encrypted_value, updated_at=CURRENT_TIMESTAMP""",
+            (encrypted_value,),
+        )
+
+
+def get_paper_broker_credentials(database_path: Path = DEFAULT_DATABASE_PATH) -> tuple[str, str]:
+    """Decrypt the signed-in user's paper credentials for a server-side SDK call."""
+    encrypted_value = None
+    client, user_id = _cloud_context()
+    if client and user_id:
+        rows = client.table("encrypted_credentials").select("encrypted_value").eq("user_id", user_id).eq("provider", "alpaca_paper").limit(1).execute().data
+        if rows:
+            encrypted_value = rows[0]["encrypted_value"]
+    else:
+        initialize_database(database_path)
+        with _connect(database_path) as connection:
+            row = connection.execute("SELECT encrypted_value FROM encrypted_credentials WHERE provider = 'alpaca_paper'").fetchone()
+        encrypted_value = row[0] if row else None
+    if not encrypted_value:
+        raise CredentialError("Connect your own Alpaca paper account before using broker features.")
+    try:
+        payload = json.loads(decrypt_secret(encrypted_value))
+        return str(payload["api_key"]), str(payload["api_secret"])
+    except (CredentialError, KeyError, TypeError, json.JSONDecodeError) as error:
+        raise CredentialError("Stored paper credentials are invalid. Reconnect your paper account.") from error
+
+
+def has_paper_broker_credentials(database_path: Path = DEFAULT_DATABASE_PATH) -> bool:
+    try:
+        get_paper_broker_credentials(database_path)
+        return True
+    except CredentialError:
+        return False
+
+
+def remove_paper_broker_credentials(database_path: Path = DEFAULT_DATABASE_PATH) -> None:
+    """Remove only the signed-in user's encrypted Alpaca paper credentials."""
+    client, user_id = _cloud_context()
+    if client and user_id:
+        client.table("encrypted_credentials").delete().eq("user_id", user_id).eq("provider", "alpaca_paper").execute()
+        return
+    initialize_database(database_path)
+    with _connect(database_path) as connection:
+        connection.execute("DELETE FROM encrypted_credentials WHERE provider = 'alpaca_paper'")
 
 
 def get_research_profile(database_path: Path = DEFAULT_DATABASE_PATH) -> dict[str, Any] | None:

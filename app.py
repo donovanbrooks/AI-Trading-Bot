@@ -17,6 +17,7 @@ from broker import (
     lookup_paper_asset,
     submit_confirmed_paper_buy,
     submit_confirmed_paper_crypto_buy,
+    validate_paper_credentials,
 )
 from storage import (
     list_recent_runs,
@@ -32,6 +33,9 @@ from storage import (
     list_watchlist_symbols,
     clear_research_profile,
     get_research_profile,
+    has_paper_broker_credentials,
+    remove_paper_broker_credentials,
+    save_paper_broker_credentials,
     save_research_profile,
 )
 from logging_config import configure_logging
@@ -705,21 +709,50 @@ with st.expander("Recent saved backtests"):
     else:
         st.dataframe(saved_runs, use_container_width=True, hide_index=True)
 
-st.subheader("Alpaca paper account")
-st.caption("Paper-only broker connection. Manual orders always remain available to you.")
-if st.button("Check paper account connection"):
-    try:
-        account = get_paper_account_summary()
-    except BrokerConfigurationError as error:
-        st.warning(str(error))
-    except Exception as error:
-        st.error(f"Alpaca connection failed: {error}")
-    else:
-        account_columns = st.columns(3)
-        account_columns[0].metric("Paper cash", f"${account['cash']:,.2f}")
-        account_columns[1].metric("Buying power", f"${account['buying_power']:,.2f}")
-        account_columns[2].metric("Paper equity", f"${account['equity']:,.2f}")
-        st.success(f"Connected to paper account {account['account_number']} ({account['status']}).")
+st.subheader("Your Alpaca paper connection")
+st.caption("Each user connects their own Alpaca paper account. Keys are encrypted on the server and live-trading credentials are not supported.")
+paper_connection_ready = has_paper_broker_credentials()
+if not paper_connection_ready:
+    with st.form("connect_alpaca_paper"):
+        paper_api_key = st.text_input("Alpaca paper API key", type="password")
+        paper_api_secret = st.text_input("Alpaca paper secret key", type="password")
+        connect_paper_account = st.form_submit_button("Verify and connect paper account", type="primary")
+    if connect_paper_account:
+        try:
+            verified_account = validate_paper_credentials(paper_api_key, paper_api_secret)
+            save_paper_broker_credentials(paper_api_key, paper_api_secret)
+        except (BrokerConfigurationError, ValueError) as error:
+            st.error(str(error))
+        except Exception as error:
+            logger.exception("Could not save paper broker connection")
+            st.error(f"Could not securely connect that paper account: {error}")
+        else:
+            st.success(f"Verified and securely connected paper account {verified_account['account_number']} ({verified_account['status']}).")
+            st.rerun()
+else:
+    st.success("Your Alpaca paper account is securely connected. Live trading is disabled.")
+    connection_one, connection_two = st.columns(2)
+    if connection_one.button("Check my paper account"):
+        try:
+            account = get_paper_account_summary()
+        except BrokerConfigurationError as error:
+            st.warning(str(error))
+        except Exception as error:
+            st.error(f"Alpaca connection failed: {error}")
+        else:
+            account_columns = st.columns(3)
+            account_columns[0].metric("Paper cash", f"${account['cash']:,.2f}")
+            account_columns[1].metric("Buying power", f"${account['buying_power']:,.2f}")
+            account_columns[2].metric("Paper equity", f"${account['equity']:,.2f}")
+            st.success(f"Connected to paper account {account['account_number']} ({account['status']}).")
+    if connection_two.button("Disconnect my paper account"):
+        try:
+            remove_paper_broker_credentials()
+        except Exception as error:
+            st.error(f"Could not remove the saved paper connection: {error}")
+        else:
+            st.success("Your encrypted paper-broker credentials were removed.")
+            st.rerun()
 
 with st.expander("AI paper-order permission"):
     automation = get_automation_settings()

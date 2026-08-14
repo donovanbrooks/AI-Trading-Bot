@@ -5,9 +5,10 @@ import pandas as pd
 import broker
 from alerts import broker_alerts, bullish_research_alerts
 from auth import create_password_hash, verify_password
+from credentials import decrypt_secret, encrypt_secret
 from market_data import _normalise_bars
 from regime_analysis import regime_performance
-from storage import paper_order_ledger, recent_paper_order, record_paper_order
+from storage import get_paper_broker_credentials, paper_order_ledger, recent_paper_order, record_paper_order, save_paper_broker_credentials
 
 
 def test_password_hash_verifies_only_the_matching_password():
@@ -74,3 +75,21 @@ def test_alert_rules_report_risk_orders_reconciliation_and_bullish_research():
 
     assert {"Daily paper-risk limit", "Position loss warning", "Paper order needs attention", "Broker reconciliation"}.issubset(alerts["Type"])
     assert bullish.iloc[0]["Symbol"] == "BTC/USD"
+
+
+def test_paper_credential_encryption_round_trip(monkeypatch):
+    monkeypatch.setenv("APP_ENCRYPTION_KEY", "test-only-server-secret")
+
+    encrypted = encrypt_secret("paper-secret")
+
+    assert encrypted != "paper-secret"
+    assert decrypt_secret(encrypted) == "paper-secret"
+
+
+def test_paper_credentials_are_retrievable_only_after_encrypted_storage(monkeypatch, tmp_path):
+    monkeypatch.setenv("APP_ENCRYPTION_KEY", "test-only-server-secret")
+    database = tmp_path / "credentials.db"
+
+    save_paper_broker_credentials("paper-key", "paper-secret", database)
+
+    assert get_paper_broker_credentials(database) == ("paper-key", "paper-secret")

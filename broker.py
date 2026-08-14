@@ -5,13 +5,13 @@ The only order pathway is a deliberately small, manually confirmed paper buy.
 
 from __future__ import annotations
 
-import os
 import re
 from typing import Any
 from uuid import uuid4
 
-from dotenv import load_dotenv
+from credentials import CredentialError
 from logging_config import configure_logging
+from storage import get_paper_broker_credentials
 
 
 class BrokerConfigurationError(RuntimeError):
@@ -24,22 +24,31 @@ logger = configure_logging()
 
 def _paper_client():
     """Create the Alpaca SDK client with the paper environment forced on."""
-    load_dotenv()
-    if os.getenv("ALPACA_PAPER", "true").lower() != "true":
-        raise BrokerConfigurationError("This app only permits ALPACA_PAPER=true.")
-
-    api_key = os.getenv("APCA_API_KEY_ID")
-    api_secret = os.getenv("APCA_API_SECRET_KEY")
-    if not api_key or not api_secret:
-        raise BrokerConfigurationError(
-            "Add APCA_API_KEY_ID and APCA_API_SECRET_KEY to your local .env file."
-        )
+    try:
+        api_key, api_secret = get_paper_broker_credentials()
+    except CredentialError as error:
+        raise BrokerConfigurationError(str(error)) from error
 
     try:
         from alpaca.trading.client import TradingClient
     except ImportError as error:
         raise BrokerConfigurationError("Install dependencies with: pip install -r requirements.txt") from error
     return TradingClient(api_key, api_secret, paper=True)
+
+
+def validate_paper_credentials(api_key: str, api_secret: str) -> dict[str, Any]:
+    """Verify credentials against Alpaca's paper endpoint without storing them."""
+    if not api_key.strip() or not api_secret.strip():
+        raise BrokerConfigurationError("Both the Alpaca paper API key and secret are required.")
+    try:
+        from alpaca.trading.client import TradingClient
+    except ImportError as error:
+        raise BrokerConfigurationError("Install dependencies with: pip install -r requirements.txt") from error
+    try:
+        account = TradingClient(api_key.strip(), api_secret.strip(), paper=True).get_account()
+    except Exception as error:
+        raise BrokerConfigurationError("Alpaca could not validate those paper credentials. Check that they are paper keys.") from error
+    return {"account_number": str(account.account_number), "status": str(account.status)}
 
 
 def get_paper_account_summary() -> dict[str, Any]:
