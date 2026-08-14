@@ -8,6 +8,7 @@ import streamlit as st
 
 from auth import require_login
 from alerts import broker_alerts, bullish_research_alerts
+from onboarding import build_research_preset
 from broker import (
     BrokerConfigurationError,
     MAX_PAPER_ORDER_NOTIONAL,
@@ -29,6 +30,9 @@ from storage import (
     save_backtest_run,
     save_watchlist,
     list_watchlist_symbols,
+    clear_research_profile,
+    get_research_profile,
+    save_research_profile,
 )
 from logging_config import configure_logging
 from market_data import load_alpaca_bars, load_twelve_data_bars
@@ -46,6 +50,34 @@ from validation import BacktestConfig, build_crossover_signals, calculate_metric
 st.set_page_config(page_title="Trading Bot Lab", page_icon="📈", layout="wide")
 logger = configure_logging()
 require_login()
+
+profile = get_research_profile()
+if profile is None:
+    st.title("Welcome to Trading Bot Lab")
+    st.caption("Answer a few questions to create an editable research starting point. This is educational research support, not personalized investment advice.")
+    with st.form("research_onboarding"):
+        onboarding_markets = st.multiselect("What do you want to research?", ["Stocks", "ETFs", "Crypto"])
+        onboarding_goal = st.radio("What is your main goal?", ["Long-term research", "Active/day research", "Both"])
+        onboarding_risk = st.radio("Which risk setting feels closest to your preference?", ["Conservative", "Balanced", "Growth"])
+        onboarding_experience = st.radio("Your experience level", ["New to investing", "Some experience", "Experienced"])
+        onboarding_monitoring = st.radio("How often can you monitor research and paper positions?", ["A few times per month", "A few times per week", "Most days"])
+        onboarding_submit = st.form_submit_button("Create my research preset", type="primary")
+    if onboarding_submit:
+        try:
+            profile = build_research_preset(
+                onboarding_markets,
+                onboarding_goal,
+                onboarding_risk,
+                onboarding_experience,
+                onboarding_monitoring,
+            )
+            save_research_profile(profile)
+        except ValueError as error:
+            st.error(str(error))
+        else:
+            st.success("Your editable research preset is ready.")
+            st.rerun()
+    st.stop()
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -70,6 +102,13 @@ st.title("Trading Bot Lab")
 st.caption("Private paper-trading research app — strategy signals never submit orders automatically.")
 
 with st.sidebar:
+    with st.expander("Your research preset"):
+        st.caption(f"Suggested starting strategy: {profile['recommended_strategy']}")
+        st.caption(f"Starter symbols: {', '.join(profile['starter_symbols'])}")
+        st.caption(profile["rationale"])
+        if st.button("Redo onboarding"):
+            clear_research_profile()
+            st.rerun()
     st.header("Backtest settings")
     research_mode = st.radio(
         "Research mode",

@@ -103,8 +103,68 @@ def initialize_database(database_path: Path = DEFAULT_DATABASE_PATH) -> None:
                 max_order_notional REAL NOT NULL DEFAULT 25,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS user_research_profiles (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                profile_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             """
         )
+
+
+def get_research_profile(database_path: Path = DEFAULT_DATABASE_PATH) -> dict[str, Any] | None:
+    """Load the signed-in user's onboarding research profile, if completed."""
+    client, user_id = _cloud_context()
+    if client and user_id:
+        try:
+            rows = client.table("user_research_profiles").select("profile").eq("user_id", user_id).limit(1).execute().data
+            if rows:
+                return dict(rows[0]["profile"])
+        except Exception:
+            # The local fallback lets the app work until the optional migration
+            # is run in Supabase.
+            pass
+    initialize_database(database_path)
+    with _connect(database_path) as connection:
+        row = connection.execute("SELECT profile_json FROM user_research_profiles WHERE id = 1").fetchone()
+    return json.loads(row[0]) if row else None
+
+
+def save_research_profile(profile: dict[str, Any], database_path: Path = DEFAULT_DATABASE_PATH) -> None:
+    """Persist a non-advisory onboarding profile."""
+    if not profile.get("recommended_strategy") or not profile.get("starter_symbols"):
+        raise ValueError("The research profile is incomplete.")
+    client, user_id = _cloud_context()
+    if client and user_id:
+        try:
+            client.table("user_research_profiles").upsert(
+                {"user_id": user_id, "profile": profile}, on_conflict="user_id"
+            ).execute()
+            return
+        except Exception:
+            pass
+    initialize_database(database_path)
+    with _connect(database_path) as connection:
+        connection.execute(
+            """INSERT INTO user_research_profiles (id, profile_json) VALUES (1, ?)
+            ON CONFLICT(id) DO UPDATE SET profile_json=excluded.profile_json, updated_at=CURRENT_TIMESTAMP""",
+            (json.dumps(profile, sort_keys=True),),
+        )
+
+
+def clear_research_profile(database_path: Path = DEFAULT_DATABASE_PATH) -> None:
+    """Remove the current user's onboarding profile so they can start again."""
+    client, user_id = _cloud_context()
+    if client and user_id:
+        try:
+            client.table("user_research_profiles").delete().eq("user_id", user_id).execute()
+            return
+        except Exception:
+            pass
+    initialize_database(database_path)
+    with _connect(database_path) as connection:
+        connection.execute("DELETE FROM user_research_profiles WHERE id = 1")
 
 
 def get_automation_settings(database_path: Path = DEFAULT_DATABASE_PATH) -> dict[str, float | bool]:
