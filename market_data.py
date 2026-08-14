@@ -17,7 +17,9 @@ class MarketDataError(RuntimeError):
     """Raised when market data cannot be loaded safely."""
 
 
-def _credentials() -> tuple[str, str]:
+def _credentials(api_key: str | None = None, api_secret: str | None = None) -> tuple[str, str]:
+    if api_key and api_secret:
+        return api_key, api_secret
     load_dotenv()
     key, secret = os.getenv("APCA_API_KEY_ID"), os.getenv("APCA_API_SECRET_KEY")
     if not key or not secret:
@@ -48,7 +50,10 @@ def _normalise_bars(dataframe: pd.DataFrame, symbol: str) -> pd.DataFrame:
     return frame[required].dropna().sort_index()
 
 
-def load_alpaca_bars(ticker: str, period: str, intraday: bool, crypto: bool = False) -> pd.DataFrame:
+def load_alpaca_bars(
+    ticker: str, period: str, intraday: bool, crypto: bool = False,
+    api_key: str | None = None, api_secret: str | None = None,
+) -> pd.DataFrame:
     """Fetch daily or five-minute bars from Alpaca's data API."""
     from alpaca.data.historical import CryptoHistoricalDataClient, StockHistoricalDataClient
     from alpaca.data.enums import DataFeed
@@ -60,12 +65,12 @@ def load_alpaca_bars(ticker: str, period: str, intraday: bool, crypto: bool = Fa
     timeframe = TimeFrame(5, TimeFrameUnit.Minute) if intraday else TimeFrame.Day
     if crypto:
         symbol = ticker.upper().replace("-", "/")
-        key, secret = _credentials()
+        key, secret = _credentials(api_key, api_secret)
         client = CryptoHistoricalDataClient(key, secret)
         bars = client.get_crypto_bars(CryptoBarsRequest(symbol_or_symbols=symbol, timeframe=timeframe, start=start, end=end))
     else:
         symbol = ticker.upper()
-        key, secret = _credentials()
+        key, secret = _credentials(api_key, api_secret)
         client = StockHistoricalDataClient(key, secret)
         bars = client.get_stock_bars(
             StockBarsRequest(symbol_or_symbols=symbol, timeframe=timeframe, start=start, end=end, feed=DataFeed.IEX)

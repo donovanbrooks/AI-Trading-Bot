@@ -236,6 +236,21 @@ def clear_research_profile(database_path: Path = DEFAULT_DATABASE_PATH) -> None:
         connection.execute("DELETE FROM user_research_profiles WHERE id = 1")
 
 
+def list_scheduled_research_alerts(limit: int = 20) -> pd.DataFrame:
+    """Return recent alert-only scheduled research results for this user."""
+    client, user_id = _cloud_context()
+    if not client or not user_id:
+        return pd.DataFrame()
+    try:
+        rows = client.table("screen_results").select("ranking,created_at").eq("user_id", user_id).eq("source", "scheduled_research_alerts").order("created_at", desc=True).limit(limit).execute().data
+        return pd.DataFrame([
+            {"Checked": row["created_at"], **event}
+            for row in rows for event in row.get("ranking", [])
+        ])
+    except Exception:
+        return pd.DataFrame()
+
+
 def get_automation_settings(database_path: Path = DEFAULT_DATABASE_PATH) -> dict[str, float | bool]:
     """Return the signed-in user's paper automation preference and hard cap."""
     client, user_id = _cloud_context()

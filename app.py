@@ -37,6 +37,7 @@ from storage import (
     remove_paper_broker_credentials,
     save_paper_broker_credentials,
     save_research_profile,
+    list_scheduled_research_alerts,
 )
 from logging_config import configure_logging
 from market_data import load_alpaca_bars, load_twelve_data_bars
@@ -1008,11 +1009,18 @@ if portfolio:
             st.info("No saved symbols currently meet the bullish research gate.")
 
     with st.expander("Scheduled watchlist worker"):
-        st.markdown(
-            "The automatic worker is intentionally unavailable until each user has their own encrypted broker connection. "
-            "This prevents a shared paper account from being checked or acted on for the wrong person. "
-            "For now, use the on-demand paper-account check and the saved-watchlist research screen."
-        )
+        st.caption("Free daily GitHub Actions job. It checks up to five saved symbols using your encrypted paper connection and only saves bullish research alerts. It never creates orders.")
+        with st.form("scheduled_research_permission"):
+            scheduled_research_enabled = st.checkbox("Enable my daily scheduled research alerts", value=bool(profile.get("scheduled_research_enabled")))
+            save_scheduled_research = st.form_submit_button("Save scheduled research preference")
+        if save_scheduled_research:
+            profile["scheduled_research_enabled"] = scheduled_research_enabled
+            save_research_profile(profile)
+            st.success("Daily scheduled research is " + ("enabled." if scheduled_research_enabled else "disabled."))
+        scheduled_alerts = list_scheduled_research_alerts()
+        if not scheduled_alerts.empty:
+            st.markdown("**Recent scheduled research alerts**")
+            st.dataframe(scheduled_alerts, use_container_width=True, hide_index=True)
 
 st.subheader("Walk-forward validation")
 if strategy_type == "Day-trading AI direction model":

@@ -1,0 +1,25 @@
+name: Daily paper research alerts
+
+on:
+  schedule:
+    - cron: "15 22 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  research-alerts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: python scripts/scheduled_research.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          APP_ENCRYPTION_KEY: ${{ secrets.APP_ENCRYPTION_KEY }}
