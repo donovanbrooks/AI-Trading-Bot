@@ -39,7 +39,7 @@ from strategy.ai_validation import generate_ai_signals
 from strategy.intraday_ai_validation import generate_intraday_ai_signals
 from strategy.crypto_ai_validation import generate_crypto_ai_signals
 from strategy.timing import latest_ai_assessment, rank_intraday_assessments
-from strategy_search import evaluate_candidates, probability_signals
+from strategy_search import evaluate_candidates, market_regimes, probability_signals, regime_recommendations
 from validation import BacktestConfig, build_crossover_signals, calculate_metrics, run_backtest, run_buy_and_hold_backtest, walk_forward_validate
 
 
@@ -509,6 +509,8 @@ with st.expander("Automatic strategy explorer"):
                     folds=3,
                     min_trades=2,
                 )
+                st.session_state["strategy_regime_recommendations"] = regime_recommendations(candidates, config)
+                st.session_state["current_market_regime"] = market_regimes(prices).iloc[-1]
         except Exception as error:
             logger.exception("Strategy explorer failed")
             st.error(f"Could not complete the strategy exploration: {error}")
@@ -520,6 +522,31 @@ with st.expander("Automatic strategy explorer"):
             "Worst OOS drawdown": "{:.2%}", "Median OOS Sharpe": "{:.2f}", "Consistency score": "{:.3f}",
         }
         st.dataframe(explorer_results.head(20).style.format(formatters), use_container_width=True, hide_index=True)
+        regime_recommendations_frame = st.session_state.get("strategy_regime_recommendations", pd.DataFrame())
+        if not regime_recommendations_frame.empty:
+            current_regime = st.session_state.get("current_market_regime", "Unknown")
+            current_recommendation = regime_recommendations_frame[
+                regime_recommendations_frame["Market regime"] == current_regime
+            ]
+            st.markdown("**Regime-specific research recommendations**")
+            st.caption(
+                f"Current broad market regime: {current_regime}. These are historical conditional results from the same walk-forward signals, not a prediction or an order instruction."
+            )
+            if not current_recommendation.empty:
+                current_choice = current_recommendation.iloc[0]
+                st.success(
+                    f"Current-regime research candidate: {current_choice['Current research status']} · "
+                    f"conditional return {current_choice['Conditional return']:.2%} · "
+                    f"conditional drawdown {current_choice['Conditional drawdown']:.2%}."
+                )
+            st.dataframe(
+                regime_recommendations_frame.style.format({
+                    "Conditional return": "{:.2%}", "Conditional drawdown": "{:.2%}",
+                    "Conditional Sharpe": "{:.2f}", "Regime score": "{:.3f}",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
     elif "strategy_explorer_results" in st.session_state:
         st.warning("No candidate met the minimum two completed out-of-sample trades. Try a longer history or less restrictive settings.")
 

@@ -7,7 +7,7 @@ from storage import list_recent_runs, save_backtest_run
 from strategy.ai_validation import generate_ai_signals
 from strategy.intraday_ai_validation import bullish_candlestick_patterns, generate_intraday_ai_signals
 from strategy.crypto_ai_validation import generate_crypto_ai_signals
-from strategy_search import evaluate_candidates, probability_signals
+from strategy_search import evaluate_candidates, market_regimes, probability_signals, regime_recommendations
 from validation import BacktestConfig, calculate_metrics, run_backtest, run_buy_and_hold_backtest, walk_forward_validate
 
 
@@ -62,6 +62,16 @@ def test_strategy_explorer_scores_candidates_and_reuses_probabilities():
 
     assert not report.empty
     assert report.iloc[0]["Threshold"] == 0.6
+
+
+def test_strategy_explorer_produces_regime_recommendations():
+    data = price_data(90)
+    data["Execution Signal"] = [0, 1, -1] * 30
+    candidates = [({"Name": "Test", "Current research status": "No new long setup"}, data)]
+    recommendations = regime_recommendations(candidates, BacktestConfig(initial_cash=1_000, trading_cost_bps=0), min_bars=10)
+
+    assert not recommendations.empty
+    assert market_regimes(data).iloc[-1] in set(recommendations["Market regime"])
 
 
 def test_ai_signal_generation_does_not_fill_before_training_period():
