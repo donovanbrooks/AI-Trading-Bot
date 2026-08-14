@@ -7,6 +7,7 @@ from storage import list_recent_runs, save_backtest_run
 from strategy.ai_validation import generate_ai_signals
 from strategy.intraday_ai_validation import bullish_candlestick_patterns, generate_intraday_ai_signals
 from strategy.crypto_ai_validation import generate_crypto_ai_signals
+from strategy_search import evaluate_candidates, probability_signals
 from validation import BacktestConfig, calculate_metrics, run_backtest, run_buy_and_hold_backtest, walk_forward_validate
 
 
@@ -51,6 +52,16 @@ def test_buy_and_hold_benchmark_applies_costs_and_stays_in_market():
     assert len(trades) == 1
     assert trades.iloc[0]["Exit Reason"] == "End of test"
     assert results["Equity"].iloc[-1] < 1_020
+
+
+def test_strategy_explorer_scores_candidates_and_reuses_probabilities():
+    data = price_data(12)
+    data["AI Probability"] = [0.4, 0.7, 0.7, 0.4] * 3
+    filtered = probability_signals(data, 0.6)
+    report = evaluate_candidates([({"Threshold": 0.6}, filtered)], BacktestConfig(initial_cash=1_000, trading_cost_bps=0), 252, folds=3)
+
+    assert not report.empty
+    assert report.iloc[0]["Threshold"] == 0.6
 
 
 def test_ai_signal_generation_does_not_fill_before_training_period():

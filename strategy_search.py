@@ -1,0 +1,90 @@
+"""Bounded, walk-forward strategy exploration utilities.
+
+The explorer searches pre-approved candidate settings. It is deliberately not
+an order generator and it ranks out-of-sample consistency above one lucky
+historical return.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+
+import pandas as pd
+
+from validation import BacktestConfig, calculate_metrics, run_backtest
+
+
+def probability_signals(
+    base_signals: pd.DataFrame,
+    probability_threshold: float,
+    require_bullish_candle: bool = False,
+    require_trend_filter: bool = False,
+) -> pd.DataFrame:
+    """Reuse already walk-forward-generated probabilities for a new threshold."""
+    if not 0.5 < probability_threshold < 1:
+        raise ValueError("probability_threshold must be between 0.5 and 1")
+    result = base_signals.copy()
+    probability = pd.to_numeric(result["AI Probability"], errors="coerce")
+    result["Signal"] = 0
+    result.loc[probability >= probability_threshold, "Signal"] = 1
+    result.loc[probability <= 1 - probability_threshold, "Signal"] = -1
+    if require_bullish_candle and "Bullish Candle" in result:
+        result.loc[(result["Signal"] == 1) & ~result["Bullish Candle"].astype(bool), "Signal"] = 0
+    if require_trend_filter and {"Trend MA 50", "Close"}.issubset(result.columns):
+        result.loc[(result["Signal"] == 1) & (result["Close"] <= result["Trend MA 50"]), "Signal"] = 0
+    if "Session Time" in result:
+        result.loc[result["Session Time"].astype(str) == "15:50:00", "Signal"] = -1
+    result["Execution Signal"] = result["Signal"].shift(1).fillna(0).astype(int)
+    return result
+
+
+def evaluate_candidates(
+    candidates: Iterable[tuple[dict[str, object], pd.DataFrame]],
+    config: BacktestConfig,
+    periods_per_year: int,
+    folds: int = 3,
+    min_trades: int = 2,
+) -> pd.DataFrame:
+    """Score candidates on independent contiguous folds, with risk penalties."""
+    if folds < 2:
+        raise ValueError("folds must be at least 2")
+    reports: list[dict[str, object]] = []
+    for parameters, signals in candidates:
+        if len(signals) < folds * 3:
+            continue
+        fold_size = len(signals) // folds
+        fold_metrics = []
+        for fold in range(folds):
+            start = fold * fold_size
+            end = len(signals) if fold == folds - 1 else (fold + 1) * fold_size
+            segment = signals.iloc[start:end]
+            if len(segment) < 2:
+                continue
+            results, trades = run_backtest(segment, config)
+            fold_metrics.append(calculate_metrics(results, trades, config.initial_cash, periods_per_year))
+        if len(fold_metrics) != folds:
+            continue
+        total_trades = sum(int(item["trade_count"]) for item in fold_metrics)
+        if total_trades < min_trades:
+            continue
+        median_return = float(pd.Series([item["total_return"] for item in fold_metrics]).median())
+        worst_return = float(min(item["total_return"] for item in fold_metrics))
+        median_sharpe = float(pd.Series([item["sharpe_ratio"] for item in fold_metrics]).median())
+        worst_drawdown = float(min(item["max_drawdown"] for item in fold_metrics))
+        # Reward repeatable fold returns and Sharpe, while explicitly penalizing
+        # drawdown. This is a ranking heuristic, never a forecast.
+        consistency_score = median_return + worst_return + 0.01 * median_sharpe + worst_drawdown
+        reports.append({
+            **parameters,
+            "Median OOS return": median_return,
+            "Worst OOS return": worst_return,
+            "Worst OOS drawdown": worst_drawdown,
+            "Median OOS Sharpe": median_sharpe,
+            "OOS trades": total_trades,
+            "Consistency score": consistency_score,
+        })
+    if not reports:
+        return pd.DataFrame()
+    return pd.DataFrame(reports).sort_values(
+        ["Consistency score", "Median OOS return"], ascending=False
+    ).reset_index(drop=True)

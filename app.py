@@ -39,6 +39,7 @@ from strategy.ai_validation import generate_ai_signals
 from strategy.intraday_ai_validation import generate_intraday_ai_signals
 from strategy.crypto_ai_validation import generate_crypto_ai_signals
 from strategy.timing import latest_ai_assessment, rank_intraday_assessments
+from strategy_search import evaluate_candidates, probability_signals
 from validation import BacktestConfig, build_crossover_signals, calculate_metrics, run_backtest, run_buy_and_hold_backtest, walk_forward_validate
 
 
@@ -455,6 +456,72 @@ st.dataframe(
     use_container_width=True,
     hide_index=True,
 )
+
+with st.expander("Automatic strategy explorer"):
+    st.caption(
+        "Tests a broad, pre-approved grid of strategy settings on three contiguous out-of-sample folds. "
+        "It ranks consistency and risk, not the single highest historical return. Your current sizing, stop, loss lockout, and costs remain fixed for every candidate."
+    )
+    search_depth = st.radio("Search size", ["Standard", "Deep"], horizontal=True, key="strategy_search_depth")
+    if st.button("Explore strategy variations", type="primary"):
+        candidates = []
+        if strategy_type == "Moving-average crossover":
+            short_options = [5, 10, 15, 20, 30, 40, 50] if search_depth == "Standard" else [5, 8, 10, 15, 20, 30, 40, 50, 60, 75]
+            long_options = [20, 30, 50, 75, 100, 150, 200] if search_depth == "Standard" else [20, 30, 40, 50, 75, 100, 150, 200, 250, 300]
+            for candidate_short in short_options:
+                for candidate_long in long_options:
+                    if candidate_short >= candidate_long or candidate_long >= len(prices):
+                        continue
+                    candidate_signals = build_crossover_signals(prices, candidate_short, candidate_long)
+                    current_status = "Bullish research setup" if int(candidate_signals["Signal"].iloc[-1]) == 1 else "No new long setup"
+                    candidates.append(({
+                        "Short MA": candidate_short,
+                        "Long MA": candidate_long,
+                        "Current research status": current_status,
+                    }, candidate_signals))
+        else:
+            thresholds = [0.52, 0.54, 0.56, 0.58, 0.60, 0.62, 0.65, 0.68] if search_depth == "Standard" else [round(value, 2) for value in [0.51, 0.52, 0.53, 0.54, 0.55, 0.56, 0.57, 0.58, 0.59, 0.60, 0.62, 0.64, 0.66, 0.68, 0.70, 0.72]]
+            candle_options = [False, True] if strategy_type in {"Day-trading AI direction model", "Crypto AI direction model"} else [False]
+            trend_options = [False, True] if strategy_type == "Crypto AI direction model" else [False]
+            for threshold in thresholds:
+                for use_candle in candle_options:
+                    for use_trend in trend_options:
+                        candidate_signals = probability_signals(
+                            signals,
+                            threshold,
+                            require_bullish_candle=use_candle,
+                            require_trend_filter=use_trend,
+                        )
+                        signal = int(candidate_signals["Signal"].iloc[-1])
+                        current_status = "Bullish research setup" if signal == 1 else ("Exit / no new long" if signal == -1 else "No new long setup")
+                        candidates.append(({
+                            "AI threshold": threshold,
+                            "Candle confirmation": use_candle,
+                            "Trend filter": use_trend,
+                            "Current research status": current_status,
+                        }, candidate_signals))
+        try:
+            with st.spinner(f"Evaluating {len(candidates)} candidate variations across out-of-sample folds..."):
+                st.session_state["strategy_explorer_results"] = evaluate_candidates(
+                    candidates,
+                    config,
+                    periods_per_year=periods_per_year,
+                    folds=3,
+                    min_trades=2,
+                )
+        except Exception as error:
+            logger.exception("Strategy explorer failed")
+            st.error(f"Could not complete the strategy exploration: {error}")
+    explorer_results = st.session_state.get("strategy_explorer_results", pd.DataFrame())
+    if not explorer_results.empty:
+        st.success("Top row is the most consistent candidate in this historical test—not a guarantee of future performance.")
+        formatters = {
+            "Median OOS return": "{:.2%}", "Worst OOS return": "{:.2%}",
+            "Worst OOS drawdown": "{:.2%}", "Median OOS Sharpe": "{:.2f}", "Consistency score": "{:.3f}",
+        }
+        st.dataframe(explorer_results.head(20).style.format(formatters), use_container_width=True, hide_index=True)
+    elif "strategy_explorer_results" in st.session_state:
+        st.warning("No candidate met the minimum two completed out-of-sample trades. Try a longer history or less restrictive settings.")
 
 st.caption(
     f"{metrics['trade_count']} completed trades · {metrics['win_rate']:.0%} win rate · "
