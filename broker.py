@@ -65,8 +65,12 @@ def get_paper_portfolio() -> dict[str, list[dict[str, str]]]:
         {
             "Symbol": str(position.symbol),
             "Quantity": str(position.qty),
+            "Average Entry": str(position.avg_entry_price),
+            "Current Price": str(position.current_price),
             "Market Value": str(position.market_value),
             "Unrealized P&L": str(position.unrealized_pl),
+            "Unrealized P&L %": str(position.unrealized_plpc),
+            "Today's P&L": str(position.change_today),
         }
         for position in client.get_all_positions()
     ]

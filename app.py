@@ -1,8 +1,4 @@
-"""Local dashboard for evaluating the trading strategy.
-
-This app is intentionally research and paper-trading only.  It never submits
-orders to a broker or stores credentials.
-"""
+"""Dashboard for evaluating strategies and managing Alpaca paper trading only."""
 
 from __future__ import annotations
 
@@ -699,10 +695,12 @@ if ticket_asset:
                     record_paper_order(order["id"], order["symbol"], ticket_asset["asset_type"], selected_notional, order["status"])
                     st.success(f"Paper order submitted: {order['symbol']} · {order['status']} · ID {order['id']}")
 
-st.subheader("Paper positions and orders")
-if st.button("Refresh paper positions and orders"):
+st.subheader("Portfolio dashboard")
+st.caption("Your Alpaca paper account only. Market values and P&L come from Alpaca when you refresh; research labels are not order instructions.")
+if st.button("Refresh portfolio dashboard", type="primary"):
     try:
         st.session_state["paper_portfolio"] = get_paper_portfolio()
+        st.session_state["paper_account"] = get_paper_account_summary()
     except BrokerConfigurationError as error:
         st.warning(str(error))
     except Exception as error:
@@ -712,12 +710,57 @@ portfolio = st.session_state.get("paper_portfolio")
 if portfolio:
     position_frame = pd.DataFrame(portfolio["positions"])
     order_frame = pd.DataFrame(portfolio["orders"])
-    st.caption("Snapshot from Alpaca paper trading. Refresh it after an order fills.")
+    account = st.session_state.get("paper_account")
+    if not position_frame.empty:
+        for column in ["Quantity", "Average Entry", "Current Price", "Market Value", "Unrealized P&L", "Unrealized P&L %", "Today's P&L"]:
+            position_frame[column] = pd.to_numeric(position_frame[column], errors="coerce")
+    invested_value = float(position_frame["Market Value"].sum()) if not position_frame.empty else 0.0
+    unrealized_pnl = float(position_frame["Unrealized P&L"].sum()) if not position_frame.empty else 0.0
+    dashboard_one, dashboard_two, dashboard_three, dashboard_four = st.columns(4)
+    dashboard_one.metric("Paper equity", f"${float(account['equity']):,.2f}" if account else "Refresh to load")
+    dashboard_two.metric("Available cash", f"${float(account['cash']):,.2f}" if account else "Refresh to load")
+    dashboard_three.metric("Invested value", f"${invested_value:,.2f}")
+    dashboard_four.metric("Open P&L", f"${unrealized_pnl:,.2f}")
+    st.caption("Snapshot from Alpaca. Refresh after an order fills or when you want the latest market value.")
     st.markdown("**Open positions**")
     if position_frame.empty:
         st.info("No open paper positions.")
     else:
-        st.dataframe(position_frame, use_container_width=True, hide_index=True)
+        assessments = st.session_state.get("position_assessments", {})
+        if assessments:
+            position_frame["AI research status"] = position_frame["Symbol"].map(
+                lambda symbol: assessments.get(str(symbol), {}).get("status", "Not assessed")
+            )
+            position_frame["AI confidence"] = position_frame["Symbol"].map(
+                lambda symbol: assessments.get(str(symbol), {}).get("probability")
+            )
+        st.dataframe(
+            position_frame.style.format({
+                "Quantity": "{:,.6g}", "Average Entry": "${:,.2f}", "Current Price": "${:,.2f}",
+                "Market Value": "${:,.2f}", "Unrealized P&L": "${:,.2f}",
+                "Unrealized P&L %": "{:.2%}", "Today's P&L": "{:.2%}", "AI confidence": "{:.1%}",
+            }),
+            use_container_width=True,
+            hide_index=True,
+        )
+        if st.button("Check latest AI research for open positions"):
+            assessments = {}
+            symbols = position_frame["Symbol"].astype(str).head(10).tolist()
+            with st.spinner("Checking the latest completed five-minute bar for each position..."):
+                for symbol in symbols:
+                    try:
+                        crypto = "/" in symbol
+                        bars = load_intraday_prices(symbol, "30d", crypto=crypto)
+                        signals = (
+                            generate_crypto_ai_signals(bars, train_bars=1_008, require_bullish_candle=True, require_trend_filter=True)
+                            if crypto else generate_intraday_ai_signals(bars, train_bars=390, require_bullish_candle=True)
+                        )
+                        assessments[symbol] = latest_ai_assessment(signals)
+                    except Exception as error:
+                        logger.warning("Could not assess paper position %s: %s", symbol, error)
+                        assessments[symbol] = {"status": "Unavailable", "probability": None, "reason": "Could not load enough recent market data."}
+            st.session_state["position_assessments"] = assessments
+            st.rerun()
     st.markdown("**Recent orders**")
     if order_frame.empty:
         st.info("No recent paper orders.")
