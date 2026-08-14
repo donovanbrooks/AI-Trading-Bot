@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from storage import get_automation_settings, list_watchlists, research_alerts, save_automation_settings, save_watchlist
+from storage import get_automation_settings, list_watchlist_symbols, list_watchlists, research_alerts, save_automation_settings, save_watchlist
 
 
 def test_saved_watchlist_creates_current_score_alert(tmp_path: Path):
@@ -16,6 +16,7 @@ def test_saved_watchlist_creates_current_score_alert(tmp_path: Path):
 
     assert list(alerts["Symbol"]) == ["SPY"]
     assert list_watchlists(database).iloc[0]["Symbols"] == "QQQ, SPY"
+    assert set(list_watchlist_symbols(database)["Symbol"]) == {"SPY", "QQQ"}
 
 
 def test_saving_a_watchlist_with_same_name_replaces_symbols(tmp_path: Path):

@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from auth import require_login
+from alerts import broker_alerts, bullish_research_alerts
 from broker import (
     BrokerConfigurationError,
     MAX_PAPER_ORDER_NOTIONAL,
@@ -27,6 +28,7 @@ from storage import (
     save_automation_settings,
     save_backtest_run,
     save_watchlist,
+    list_watchlist_symbols,
 )
 from logging_config import configure_logging
 from market_data import load_alpaca_bars, load_twelve_data_bars
@@ -777,6 +779,74 @@ if portfolio:
         st.dataframe(local_orders, use_container_width=True, hide_index=True)
         if not missing_from_broker.empty:
             st.warning("Some locally recorded orders are not in Alpaca's recent 10-order snapshot. Refresh later or check the Alpaca dashboard.")
+
+    st.subheader("Alert Center")
+    st.caption("Alerts are research and paper-account warnings. They never submit, close, or change an order.")
+    alert_one, alert_two = st.columns(2)
+    position_warning_pct = alert_one.slider("Position-loss warning (%)", 1.0, 20.0, 5.0, 0.5) / 100
+    daily_warning_pct = alert_two.slider("Daily paper-risk limit (%)", 0.5, 15.0, 3.0, 0.5) / 100
+    if st.button("Run paper-account alert check"):
+        account_alerts = broker_alerts(
+            account,
+            position_frame,
+            order_frame,
+            local_orders,
+            position_loss_limit_pct=position_warning_pct,
+            daily_loss_limit_pct=daily_warning_pct,
+        )
+        st.session_state["paper_account_alerts"] = account_alerts
+    account_alerts = st.session_state.get("paper_account_alerts", pd.DataFrame())
+    if not account_alerts.empty:
+        st.dataframe(account_alerts, use_container_width=True, hide_index=True)
+    else:
+        st.info("Run the check to evaluate your current paper-account snapshot.")
+
+    with st.expander("Saved-symbol bullish setup alerts"):
+        st.caption("Checks the latest completed five-minute bar for up to 10 saved symbols. A bullish label is research only, never a command to trade.")
+        with st.form("quick_alert_watchlist"):
+            quick_watchlist_name = st.text_input("Watchlist name", "My alert symbols")
+            quick_watchlist_symbols = st.text_input("Stocks, ETFs, or crypto pairs (comma separated)", placeholder="SPY, QQQ, BTC-USD")
+            save_quick_watchlist = st.form_submit_button("Save symbols for alerts")
+        if save_quick_watchlist:
+            symbols = [symbol.strip().upper() for symbol in quick_watchlist_symbols.split(",") if symbol.strip()]
+            try:
+                save_watchlist(quick_watchlist_name, "Alert Center", symbols, "Mixed", 0)
+            except ValueError as error:
+                st.error(str(error))
+            else:
+                st.success(f"Saved {len(symbols)} symbol(s) for research alerts.")
+        if st.button("Check saved symbols for bullish setups"):
+            saved_symbols = list_watchlist_symbols()
+            assessments = {}
+            if saved_symbols.empty:
+                st.info("Save at least one symbol above or from a research screen first.")
+            else:
+                with st.spinner("Checking saved symbols using the latest completed five-minute bars..."):
+                    for _, saved in saved_symbols.drop_duplicates("Symbol").head(10).iterrows():
+                        symbol = str(saved["Symbol"]).upper()
+                        crypto = "/" in symbol or symbol.endswith("-USD") or str(saved["Asset type"]).lower() == "crypto"
+                        try:
+                            bars = load_intraday_prices(symbol, "30d", crypto=crypto)
+                            signals = (
+                                generate_crypto_ai_signals(bars, train_bars=1_008, require_bullish_candle=True, require_trend_filter=True)
+                                if crypto else generate_intraday_ai_signals(bars, train_bars=390, require_bullish_candle=True)
+                            )
+                            assessments[symbol] = latest_ai_assessment(signals)
+                        except Exception as error:
+                            logger.warning("Saved-symbol alert check failed for %s: %s", symbol, error)
+                st.session_state["watchlist_bullish_alerts"] = bullish_research_alerts(assessments)
+        bullish_alerts = st.session_state.get("watchlist_bullish_alerts", pd.DataFrame())
+        if not bullish_alerts.empty:
+            st.dataframe(bullish_alerts, use_container_width=True, hide_index=True)
+        elif "watchlist_bullish_alerts" in st.session_state:
+            st.info("No saved symbols currently meet the bullish research gate.")
+
+    with st.expander("Scheduled watchlist worker"):
+        st.markdown(
+            "The automatic worker is intentionally unavailable until each user has their own encrypted broker connection. "
+            "This prevents a shared paper account from being checked or acted on for the wrong person. "
+            "For now, use the on-demand paper-account check and the saved-watchlist research screen."
+        )
 
 st.subheader("Walk-forward validation")
 if strategy_type == "Day-trading AI direction model":

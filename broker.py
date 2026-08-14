@@ -51,6 +51,7 @@ def get_paper_account_summary() -> dict[str, Any]:
         "cash": float(account.cash),
         "buying_power": float(account.buying_power),
         "equity": float(account.equity),
+        "last_equity": float(account.last_equity),
         "account_number": str(account.account_number),
     }
 

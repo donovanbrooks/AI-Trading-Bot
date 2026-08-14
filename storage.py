@@ -221,6 +221,27 @@ def list_watchlists(database_path: Path = DEFAULT_DATABASE_PATH) -> pd.DataFrame
         )
 
 
+def list_watchlist_symbols(database_path: Path = DEFAULT_DATABASE_PATH) -> pd.DataFrame:
+    """Return every saved symbol with its watchlist and declared asset type."""
+    client, user_id = _cloud_context()
+    if client and user_id:
+        rows = client.table("watchlists").select("name,symbols").eq("user_id", user_id).execute().data
+        return pd.DataFrame([
+            {"Watchlist": row["name"], "Symbol": item["symbol"], "Asset type": item.get("asset_type", "")}
+            for row in rows for item in row.get("symbols", [])
+        ])
+    initialize_database(database_path)
+    with _connect(database_path) as connection:
+        return pd.read_sql_query(
+            """
+            SELECT w.name AS "Watchlist", s.symbol AS "Symbol", s.asset_type AS "Asset type"
+            FROM watchlists w JOIN watchlist_symbols s ON s.watchlist_id = w.id
+            ORDER BY w.updated_at DESC, s.symbol
+            """,
+            connection,
+        )
+
+
 def research_alerts(ranking: pd.DataFrame, database_path: Path = DEFAULT_DATABASE_PATH) -> pd.DataFrame:
     """Return saved-symbol score alerts triggered by the current screener results."""
     if ranking.empty or not {"Symbol", "Research score"}.issubset(ranking.columns):

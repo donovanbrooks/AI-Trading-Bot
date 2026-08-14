@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pandas as pd
 
 import broker
+from alerts import broker_alerts, bullish_research_alerts
 from auth import create_password_hash, verify_password
 from market_data import _normalise_bars
 from regime_analysis import regime_performance
@@ -62,3 +63,14 @@ def test_paper_order_ledger_blocks_recent_duplicate(tmp_path):
 
     assert recent_paper_order("SPY", database_path=database)
     assert len(paper_order_ledger(database)) == 1
+
+
+def test_alert_rules_report_risk_orders_reconciliation_and_bullish_research():
+    positions = pd.DataFrame({"Symbol": ["SPY"], "Unrealized P&L %": [-0.06]})
+    broker_orders = pd.DataFrame({"Order ID": ["broker-1"], "Symbol": ["QQQ"], "Status": ["rejected"]})
+    local_orders = pd.DataFrame({"Order ID": ["local-1"], "Symbol": ["IWM"]})
+    alerts = broker_alerts({"equity": 9_600, "last_equity": 10_000}, positions, broker_orders, local_orders)
+    bullish = bullish_research_alerts({"BTC/USD": {"status": "Bullish entry setup", "reason": "Trend and candle confirmation."}})
+
+    assert {"Daily paper-risk limit", "Position loss warning", "Paper order needs attention", "Broker reconciliation"}.issubset(alerts["Type"])
+    assert bullish.iloc[0]["Symbol"] == "BTC/USD"
