@@ -12,6 +12,7 @@ def test_strategy_catalog_has_transparent_profiles():
     assert len(profiles) == 4
     assert get_strategy_profile("btc_trend_candles")["holdings"] == {"BTC/USD": 1.0}
     assert all("Paper tracking" in row["Track record"] for row in profiles)
+    assert all(row["Source"] == "Built-in Trading Bot Lab template" for row in profiles)
 
 
 def test_rebalance_proposal_respects_risk_cap_and_never_auto_sells():

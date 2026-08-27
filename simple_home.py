@@ -9,7 +9,14 @@ import streamlit as st
 
 from broker import BrokerConfigurationError, get_paper_account_summary, get_paper_portfolio
 from copy_strategies import get_strategy_profile
-from storage import list_copy_strategy_follows, save_copy_strategy_follow
+from storage import (
+    list_copy_strategy_follows,
+    list_scheduled_research_alerts,
+    list_scheduled_strategy_tests,
+    list_watchlists,
+    save_copy_strategy_follow,
+    save_watchlist,
+)
 
 
 PROFILE_STRATEGY_IDS = {
@@ -41,6 +48,7 @@ def render_simple_home(profile: dict[str, Any]) -> None:
     st.subheader("Your suggested starting plan")
     st.markdown(f"### {strategy['name']}")
     st.write(strategy["explanation"])
+    st.caption(f"Source: {strategy['source']} · {strategy['profile_status']}")
     plan_one, plan_two, plan_three = st.columns(3)
     plan_one.metric("Style", strategy["style"])
     plan_two.metric("Risk", strategy["risk_level"])
@@ -58,6 +66,31 @@ def render_simple_home(profile: dict[str, Any]) -> None:
             st.error(f"Could not save your paper plan: {error}")
         else:
             st.success("Your paper plan is ready. You stay in control of every trade.")
+
+    st.subheader("Research an investment idea")
+    st.caption("Search a symbol you already know, save it for research, and use Advanced research when you want charts or a manual paper trade.")
+    with st.form("simple_investment_idea"):
+        idea_type = st.radio("What do you want to research?", ["Stock or ETF", "Crypto"], horizontal=True)
+        idea_symbol = st.text_input("Symbol or crypto pair", placeholder="AAPL, VTI, BTC-USD")
+        idea_amount = st.number_input("Paper amount you are considering ($)", min_value=1.0, max_value=1_000_000.0, value=25.0, step=5.0)
+        save_idea = st.form_submit_button("Save this idea for research")
+    if save_idea:
+        cleaned_symbol = idea_symbol.strip().upper().replace("/", "-")
+        if not cleaned_symbol:
+            st.warning("Enter a symbol or crypto pair first.")
+        else:
+            try:
+                watchlists = list_watchlists()
+                existing = []
+                if not watchlists.empty and "My simple ideas" in watchlists["Name"].astype(str).tolist():
+                    existing_text = str(watchlists.loc[watchlists["Name"] == "My simple ideas", "Symbols"].iloc[0])
+                    existing = [symbol.strip().upper() for symbol in existing_text.split(",") if symbol.strip()]
+                save_watchlist("My simple ideas", "Simple Home", [*existing, cleaned_symbol], "Mixed", 0)
+            except Exception as error:
+                st.error(f"Could not save that research idea: {error}")
+            else:
+                st.success(f"Saved {cleaned_symbol}. Start with research before making any paper-trading decision about ${idea_amount:,.2f}.")
+                st.info("Current AI status: not checked yet. Open Advanced research to review the latest model assessment and risk warnings.")
 
     st.subheader("Your paper portfolio")
     st.caption("Connect a paper account in Advanced research to view current paper cash, positions, and order status here.")
@@ -96,6 +129,40 @@ def render_simple_home(profile: dict[str, Any]) -> None:
             use_container_width=True,
             hide_index=True,
         )
+        with st.form("simple_plan_pause"):
+            plan_id = st.selectbox("Manage a saved plan", follows["Strategy ID"].tolist(), format_func=lambda value: get_strategy_profile(str(value))["name"])
+            selected = follows[follows["Strategy ID"] == plan_id].iloc[0]
+            pause_plan = st.checkbox("Pause this plan", value=bool(selected["Paused"]))
+            save_pause = st.form_submit_button("Save plan status")
+        if save_pause:
+            try:
+                save_copy_strategy_follow(str(plan_id), float(selected["Paper allocation"]), float(selected["Risk cap"]), pause_plan)
+            except Exception as error:
+                st.error(f"Could not update the plan: {error}")
+            else:
+                st.success("Plan status updated. Paused plans do not create rebalance proposals.")
+
+    st.subheader("Notification center")
+    st.caption("In-app research notifications. Email and push delivery are not connected yet.")
+    scheduled_alerts = list_scheduled_research_alerts(limit=5)
+    scheduled_tests = list_scheduled_strategy_tests(limit=10)
+    if scheduled_alerts.empty and scheduled_tests.empty:
+        st.info("No new scheduled research notifications yet. Enable the daily worker in Advanced research when you are ready.")
+    else:
+        if not scheduled_alerts.empty:
+            st.markdown("**Recent research alerts**")
+            st.dataframe(scheduled_alerts.head(5), use_container_width=True, hide_index=True)
+        if not scheduled_tests.empty:
+            ranked = scheduled_tests.dropna(subset=["Consistency score"]) if "Consistency score" in scheduled_tests else pd.DataFrame()
+            if not ranked.empty:
+                best = ranked.sort_values("Consistency score", ascending=False).iloc[0]
+                st.success(
+                    f"Latest strongest tested setup: {best.get('Symbol', 'Symbol')} using MA "
+                    f"{int(best.get('Short MA', 0))}/{int(best.get('Long MA', 0))}. "
+                    "This is historical research, not a prediction or order instruction."
+                )
+            st.markdown("**Recent daily strategy tests**")
+            st.dataframe(scheduled_tests.head(6), use_container_width=True, hide_index=True)
 
     st.divider()
     st.subheader("Want more control?")

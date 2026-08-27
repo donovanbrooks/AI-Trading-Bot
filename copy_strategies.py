@@ -15,24 +15,28 @@ STRATEGY_CATALOG: dict[str, dict[str, Any]] = {
     "conservative_etf_growth": {
         "name": "Conservative ETF Growth", "style": "Long-term diversified ETF research",
         "risk_level": "Lower relative volatility", "rebalance": "Quarterly proposal",
+        "source": "Built-in Trading Bot Lab template", "profile_status": "Rules disclosed · paper-only",
         "holdings": {"VTI": 0.45, "BND": 0.35, "VXUS": 0.20},
         "explanation": "A transparent diversified research allocation across US stocks, bonds, and international stocks. It is not a guarantee of lower losses.",
     },
     "btc_trend_candles": {
         "name": "BTC Trend + Candlestick Confirmation", "style": "Crypto research",
         "risk_level": "High volatility", "rebalance": "Signal review on completed five-minute bars",
+        "source": "Built-in Trading Bot Lab template", "profile_status": "Rules disclosed · paper-only",
         "holdings": {"BTC/USD": 1.0},
         "explanation": "Uses the app's BTC trend and bullish-candlestick research conditions. Crypto can move sharply and this profile can remain uninvested when its research conditions are not met.",
     },
     "ai_day_research": {
         "name": "AI Day-Trading Research", "style": "Short-horizon stock and ETF research",
         "risk_level": "High turnover and high risk", "rebalance": "Intraday proposal only",
+        "source": "Built-in Trading Bot Lab template", "profile_status": "Rules disclosed · paper-only",
         "holdings": {"SPY": 0.40, "QQQ": 0.35, "IWM": 0.25},
         "explanation": "A liquid-ETF research basket for evaluating the intraday model. It is not an instruction to day trade and no strategy result is guaranteed.",
     },
     "momentum_etf_basket": {
         "name": "Momentum ETF Basket", "style": "Medium-term ETF research",
         "risk_level": "Moderate to high volatility", "rebalance": "Monthly proposal",
+        "source": "Built-in Trading Bot Lab template", "profile_status": "Rules disclosed · paper-only",
         "holdings": {"SPY": 0.35, "QQQ": 0.30, "IWM": 0.20, "GLD": 0.15},
         "explanation": "A diversified liquid-ETF basket intended for walk-forward testing of momentum and trend research before any paper allocation is considered.",
     },
@@ -44,6 +48,7 @@ def strategy_profiles() -> list[dict[str, Any]]:
     return [
         {"Strategy ID": strategy_id, "Strategy": profile["name"], "Style": profile["style"],
          "Risk": profile["risk_level"], "Rebalance review": profile["rebalance"],
+         "Source": profile["source"], "Profile status": profile["profile_status"],
          "Holdings": ", ".join(f"{symbol} {weight:.0%}" for symbol, weight in profile["holdings"].items()),
          "Track record": "Paper tracking begins when followed; validate with walk-forward research."}
         for strategy_id, profile in STRATEGY_CATALOG.items()
