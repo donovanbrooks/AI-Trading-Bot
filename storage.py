@@ -259,6 +259,23 @@ def list_scheduled_research_alerts(limit: int = 20) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def list_scheduled_strategy_tests(limit: int = 50) -> pd.DataFrame:
+    """Return the signed-in user's latest bounded daily strategy-test reports."""
+    client, user_id = _cloud_context()
+    if not client or not user_id:
+        return pd.DataFrame()
+    try:
+        rows = client.table("screen_results").select("ranking,created_at").eq(
+            "user_id", user_id
+        ).eq("source", "scheduled_strategy_tests").order("created_at", desc=True).limit(limit).execute().data
+        return pd.DataFrame([
+            {"Tested": row["created_at"], **result}
+            for row in rows for result in row.get("ranking", [])
+        ])
+    except Exception:
+        return pd.DataFrame()
+
+
 def get_automation_settings(database_path: Path = DEFAULT_DATABASE_PATH) -> dict[str, float | bool]:
     """Return the signed-in user's paper automation preference and hard cap."""
     client, user_id = _cloud_context()

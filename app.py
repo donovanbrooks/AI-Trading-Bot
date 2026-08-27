@@ -40,6 +40,7 @@ from storage import (
     save_paper_broker_credentials,
     save_research_profile,
     list_scheduled_research_alerts,
+    list_scheduled_strategy_tests,
     list_copy_strategy_follows,
     save_copy_strategy_follow,
 )
@@ -1112,18 +1113,35 @@ if portfolio:
             st.info("No saved symbols currently meet the bullish research gate.")
 
     with st.expander("Scheduled watchlist worker"):
-        st.caption("Free daily GitHub Actions job. It checks up to five saved symbols using your encrypted paper connection and only saves bullish research alerts. It never creates orders.")
+        st.caption("Free daily GitHub Actions jobs. They only save research results and never create, queue, cancel, or change an order.")
         with st.form("scheduled_research_permission"):
             scheduled_research_enabled = st.checkbox("Enable my daily scheduled research alerts", value=bool(profile.get("scheduled_research_enabled")))
-            save_scheduled_research = st.form_submit_button("Save scheduled research preference")
+            scheduled_strategy_testing_enabled = st.checkbox(
+                "Enable my daily strategy validation (up to 8 fixed variations)",
+                value=bool(profile.get("scheduled_strategy_testing_enabled")),
+            )
+            save_scheduled_research = st.form_submit_button("Save daily-worker preferences")
         if save_scheduled_research:
             profile["scheduled_research_enabled"] = scheduled_research_enabled
+            profile["scheduled_strategy_testing_enabled"] = scheduled_strategy_testing_enabled
             save_research_profile(profile)
-            st.success("Daily scheduled research is " + ("enabled." if scheduled_research_enabled else "disabled."))
+            st.success("Daily research alerts are " + ("enabled" if scheduled_research_enabled else "disabled") + ". Daily strategy validation is " + ("enabled." if scheduled_strategy_testing_enabled else "disabled."))
         scheduled_alerts = list_scheduled_research_alerts()
         if not scheduled_alerts.empty:
             st.markdown("**Recent scheduled research alerts**")
             st.dataframe(scheduled_alerts, use_container_width=True, hide_index=True)
+        scheduled_tests = list_scheduled_strategy_tests()
+        if not scheduled_tests.empty:
+            st.markdown("**Recent daily strategy validation**")
+            st.caption("Ranks fixed historical variations using three contiguous out-of-sample folds. It is research, not a forecast or order instruction.")
+            st.dataframe(
+                scheduled_tests.style.format({
+                    "Median OOS return": "{:.2%}", "Worst OOS return": "{:.2%}",
+                    "Worst OOS drawdown": "{:.2%}", "Median OOS Sharpe": "{:.2f}", "Consistency score": "{:.3f}",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
 
 st.subheader("Walk-forward validation")
 if strategy_type == "Day-trading AI direction model":
