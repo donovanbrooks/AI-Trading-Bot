@@ -9,6 +9,7 @@ import streamlit as st
 from auth import require_login
 from alerts import broker_alerts, bullish_research_alerts
 from onboarding import build_research_preset
+from copy_strategies import build_rebalance_proposal, get_strategy_profile, strategy_profiles
 from broker import (
     BrokerConfigurationError,
     MAX_PAPER_ORDER_NOTIONAL,
@@ -38,6 +39,8 @@ from storage import (
     save_paper_broker_credentials,
     save_research_profile,
     list_scheduled_research_alerts,
+    list_copy_strategy_follows,
+    save_copy_strategy_follow,
 )
 from logging_config import configure_logging
 from market_data import load_alpaca_bars, load_twelve_data_bars
@@ -787,6 +790,91 @@ with st.expander("AI paper-order permission"):
         st.warning("Autonomous paper-order eligibility is on. A scheduled automation worker is not connected yet, so no strategy orders are being placed automatically today.")
     else:
         st.info("AI-generated orders require your approval. You can still submit manual paper buys below.")
+
+st.subheader("Copy strategy — paper mode")
+st.caption(
+    "Follow a transparent built-in research strategy with a paper allocation and risk cap. "
+    "This feature saves preferences and creates review-only rebalance proposals; it never submits, queues, or copies a broker order."
+)
+catalog = pd.DataFrame(strategy_profiles())
+st.dataframe(catalog.drop(columns=["Strategy ID"]), use_container_width=True, hide_index=True)
+catalog_ids = catalog["Strategy ID"].tolist()
+selected_strategy_id = st.selectbox(
+    "Choose a paper strategy to follow",
+    catalog_ids,
+    format_func=lambda strategy_id: get_strategy_profile(strategy_id)["name"],
+)
+selected_profile = get_strategy_profile(selected_strategy_id)
+st.info(selected_profile["explanation"])
+with st.form("copy_strategy_follow"):
+    follow_allocation = st.number_input("Paper allocation for this strategy ($)", min_value=1.0, max_value=1_000_000.0, value=100.0, step=25.0)
+    follow_risk_cap = st.slider("Maximum share of total paper equity this strategy may target (%)", 1, 100, 10, 1)
+    follow_paused = st.checkbox("Pause this follow plan (keep it saved but do not make proposals)")
+    save_follow = st.form_submit_button("Save paper follow plan", type="primary")
+if save_follow:
+    try:
+        save_copy_strategy_follow(selected_strategy_id, follow_allocation, follow_risk_cap / 100, follow_paused)
+    except ValueError as error:
+        st.error(str(error))
+    except Exception as error:
+        logger.exception("Could not save paper strategy follow")
+        st.error(f"Could not save the paper follow plan: {error}")
+    else:
+        st.success("Paper follow plan saved. It cannot place an order.")
+
+saved_follows = list_copy_strategy_follows()
+if saved_follows.empty:
+    st.info("No paper strategy follows saved yet.")
+else:
+    display_follows = saved_follows.copy()
+    display_follows["Strategy"] = display_follows["Strategy ID"].map(lambda value: get_strategy_profile(str(value))["name"])
+    st.markdown("**Your saved paper follow plans**")
+    st.dataframe(
+        display_follows[["Strategy", "Paper allocation", "Risk cap", "Paused", "Updated"]].style.format(
+            {"Paper allocation": "${:,.2f}", "Risk cap": "{:.0%}"}
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+    plan_id = st.selectbox(
+        "Create a rebalance proposal for",
+        display_follows["Strategy ID"].tolist(),
+        format_func=lambda strategy_id: get_strategy_profile(str(strategy_id))["name"],
+    )
+    if st.button("Build paper rebalance proposal"):
+        selected_follow = display_follows[display_follows["Strategy ID"] == plan_id].iloc[0]
+        if bool(selected_follow["Paused"]):
+            st.warning("This follow plan is paused. Unpause it and save before building a proposal.")
+        elif not paper_connection_ready:
+            st.warning("Connect an Alpaca paper account first so the proposal can use your current paper equity and positions.")
+        else:
+            try:
+                proposal_portfolio = get_paper_portfolio()
+                proposal_account = get_paper_account_summary()
+                proposal_positions = pd.DataFrame(proposal_portfolio["positions"])
+                st.session_state["copy_strategy_proposal"] = build_rebalance_proposal(
+                    str(plan_id),
+                    float(selected_follow["Paper allocation"]),
+                    float(selected_follow["Risk cap"]),
+                    float(proposal_account["equity"]),
+                    proposal_positions,
+                )
+                st.session_state["copy_strategy_proposal_name"] = get_strategy_profile(str(plan_id))["name"]
+            except (BrokerConfigurationError, ValueError) as error:
+                st.warning(str(error))
+            except Exception as error:
+                logger.exception("Could not build paper strategy proposal")
+                st.error(f"Could not build the paper rebalance proposal: {error}")
+
+proposal = st.session_state.get("copy_strategy_proposal")
+if proposal is not None:
+    st.markdown(f"**Review-only proposal: {st.session_state.get('copy_strategy_proposal_name', '')}**")
+    st.caption("A negative difference never triggers a sale. Use the trade ticket below to make any manual paper trade you choose.")
+    st.dataframe(
+        proposal.style.format({"Target weight": "{:.0%}", "Target value": "${:,.2f}", "Current value": "${:,.2f}", "Difference": "${:,.2f}"}),
+        use_container_width=True,
+        hide_index=True,
+    )
 
 st.subheader("Trade ticket")
 st.caption("Search a US stock/ETF or supported crypto pair, choose a dollar amount, then either submit a paper buy yourself or hand it to the AI paper-order queue.")

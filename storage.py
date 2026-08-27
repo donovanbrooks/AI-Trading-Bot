@@ -116,6 +116,14 @@ def initialize_database(database_path: Path = DEFAULT_DATABASE_PATH) -> None:
                 encrypted_value TEXT NOT NULL,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS copy_strategy_follows (
+                strategy_id TEXT PRIMARY KEY,
+                allocation_amount REAL NOT NULL,
+                risk_cap_pct REAL NOT NULL,
+                paused INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             """
         )
 
@@ -285,6 +293,45 @@ def save_automation_settings(enabled: bool, max_order_notional: float, database_
             max_order_notional=excluded.max_order_notional, updated_at=CURRENT_TIMESTAMP""",
             (int(enabled), float(max_order_notional)),
         )
+
+
+def save_copy_strategy_follow(strategy_id: str, allocation_amount: float, risk_cap_pct: float, paused: bool,
+                              database_path: Path = DEFAULT_DATABASE_PATH) -> None:
+    """Save a user's paper-only strategy-follow plan; this never places orders."""
+    if not strategy_id.strip():
+        raise ValueError("A strategy is required.")
+    if not 1 <= float(allocation_amount) <= 1_000_000:
+        raise ValueError("Paper allocation must be between $1 and $1,000,000.")
+    if not 0 < float(risk_cap_pct) <= 1:
+        raise ValueError("Risk cap must be greater than 0% and no more than 100%.")
+    client, user_id = _cloud_context()
+    payload = {"strategy_id": strategy_id.strip(), "allocation_amount": float(allocation_amount),
+               "risk_cap_pct": float(risk_cap_pct), "paused": bool(paused)}
+    if client and user_id:
+        client.table("copy_strategy_follows").upsert({"user_id": user_id, **payload}, on_conflict="user_id,strategy_id").execute()
+        return
+    initialize_database(database_path)
+    with _connect(database_path) as connection:
+        connection.execute(
+            """INSERT INTO copy_strategy_follows (strategy_id, allocation_amount, risk_cap_pct, paused)
+            VALUES (?, ?, ?, ?) ON CONFLICT(strategy_id) DO UPDATE SET allocation_amount=excluded.allocation_amount,
+            risk_cap_pct=excluded.risk_cap_pct, paused=excluded.paused, updated_at=CURRENT_TIMESTAMP""",
+            (payload["strategy_id"], payload["allocation_amount"], payload["risk_cap_pct"], int(payload["paused"])),
+        )
+
+
+def list_copy_strategy_follows(database_path: Path = DEFAULT_DATABASE_PATH) -> pd.DataFrame:
+    """Return the current user's saved paper-only strategy follows."""
+    client, user_id = _cloud_context()
+    if client and user_id:
+        rows = client.table("copy_strategy_follows").select("strategy_id,allocation_amount,risk_cap_pct,paused,updated_at").eq("user_id", user_id).order("updated_at", desc=True).execute().data
+        return pd.DataFrame([{"Strategy ID": row["strategy_id"], "Paper allocation": float(row["allocation_amount"]),
+                              "Risk cap": float(row["risk_cap_pct"]), "Paused": bool(row["paused"]), "Updated": row["updated_at"]} for row in rows])
+    initialize_database(database_path)
+    with _connect(database_path) as connection:
+        return pd.read_sql_query(
+            """SELECT strategy_id AS "Strategy ID", allocation_amount AS "Paper allocation", risk_cap_pct AS "Risk cap",
+            paused AS "Paused", updated_at AS "Updated" FROM copy_strategy_follows ORDER BY updated_at DESC""", connection)
 
 
 def save_watchlist(
