@@ -10,6 +10,7 @@ from auth import require_login
 from alerts import broker_alerts, bullish_research_alerts
 from onboarding import build_research_preset
 from copy_strategies import build_rebalance_proposal, get_strategy_profile, strategy_profiles
+from simple_home import render_simple_home
 from broker import (
     BrokerConfigurationError,
     MAX_PAPER_ORDER_NOTIONAL,
@@ -85,6 +86,20 @@ if profile is None:
         else:
             st.success("Your editable research preset is ready.")
             st.rerun()
+    st.stop()
+
+
+if "app_view" not in st.session_state:
+    st.session_state["app_view"] = "Simple Home"
+with st.sidebar:
+    st.radio(
+        "App view",
+        ["Simple Home", "Advanced research"],
+        key="app_view",
+        help="Simple Home hides technical settings. Advanced research keeps the complete strategy lab.",
+    )
+if st.session_state["app_view"] == "Simple Home":
+    render_simple_home(profile)
     st.stop()
 
 
