@@ -324,9 +324,13 @@ def list_copy_strategy_follows(database_path: Path = DEFAULT_DATABASE_PATH) -> p
     """Return the current user's saved paper-only strategy follows."""
     client, user_id = _cloud_context()
     if client and user_id:
-        rows = client.table("copy_strategy_follows").select("strategy_id,allocation_amount,risk_cap_pct,paused,updated_at").eq("user_id", user_id).order("updated_at", desc=True).execute().data
-        return pd.DataFrame([{"Strategy ID": row["strategy_id"], "Paper allocation": float(row["allocation_amount"]),
-                              "Risk cap": float(row["risk_cap_pct"]), "Paused": bool(row["paused"]), "Updated": row["updated_at"]} for row in rows])
+        try:
+            rows = client.table("copy_strategy_follows").select("strategy_id,allocation_amount,risk_cap_pct,paused,updated_at").eq("user_id", user_id).order("updated_at", desc=True).execute().data
+            return pd.DataFrame([{"Strategy ID": row["strategy_id"], "Paper allocation": float(row["allocation_amount"]),
+                                  "Risk cap": float(row["risk_cap_pct"]), "Paused": bool(row["paused"]), "Updated": row["updated_at"]} for row in rows])
+        except Exception:
+            # The app remains usable until the optional Supabase migration is run.
+            return pd.DataFrame()
     initialize_database(database_path)
     with _connect(database_path) as connection:
         return pd.read_sql_query(
