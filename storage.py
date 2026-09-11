@@ -16,21 +16,35 @@ from credentials import CredentialError, decrypt_secret, encrypt_secret
 DEFAULT_DATABASE_PATH = Path("data/trading_bot.db")
 
 
-def _cloud_context():
-    """Return a server-side Supabase client scoped to the signed-in user."""
-    try:
-        import streamlit as st
-        from supabase import create_client
+class StorageUnavailableError(RuntimeError):
+    """Raised when configured cloud storage cannot safely serve a user request."""
 
-        load_dotenv(override=True)
-        user_id = st.session_state.get("supabase_user_id")
-        url = os.getenv("SUPABASE_URL")
-        service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        if user_id and url and service_key:
-            return create_client(url, service_key), str(user_id)
-    except Exception:
-        pass
-    return None, None
+
+def _cloud_context():
+    """Return an RLS-enforced client for the signed-in user.
+
+    The Streamlit app must never use SUPABASE_SERVICE_ROLE_KEY for a user
+    request. The scheduled worker is the only process that needs that key.
+    """
+    import streamlit as st
+    from supabase import create_client
+
+    load_dotenv(override=True)
+    user_id = st.session_state.get("supabase_user_id")
+    url = os.getenv("SUPABASE_URL")
+    publishable_key = os.getenv("SUPABASE_ANON_KEY")
+    access_token = st.session_state.get("supabase_access_token")
+    refresh_token = st.session_state.get("supabase_refresh_token")
+    if not user_id:
+        return None, None
+    if not all((url, publishable_key, user_id, access_token, refresh_token)):
+        raise StorageUnavailableError("Cloud storage is not ready. Sign in again or check the Supabase server configuration.")
+    try:
+        client = create_client(url, publishable_key)
+        client.auth.set_session(access_token, refresh_token)
+        return client, str(user_id)
+    except Exception as error:
+        raise StorageUnavailableError("Cloud storage is unavailable. Your data was not saved locally; try again later.") from error
 
 
 def _connect(database_path: Path = DEFAULT_DATABASE_PATH) -> sqlite3.Connection:
@@ -362,7 +376,7 @@ def save_watchlist(
     asset_type: str,
     minimum_score: float,
     database_path: Path = DEFAULT_DATABASE_PATH,
-) -> int:
+) -> int | str:
     """Create or replace a named research watchlist and its in-app alert rule."""
     cleaned_name = name.strip()
     cleaned_symbols = sorted({symbol.strip().upper() for symbol in symbols if symbol.strip()})
@@ -384,7 +398,7 @@ def save_watchlist(
             },
             on_conflict="user_id,name",
         ).execute()
-        return int(response.data[0]["id"].replace("-", "")[:8], 16)
+        return str(response.data[0]["id"])
     initialize_database(database_path)
     with _connect(database_path) as connection:
         connection.execute(

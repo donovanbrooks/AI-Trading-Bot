@@ -8,6 +8,7 @@ historical return.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from math import tanh
 
 import pandas as pd
 
@@ -71,9 +72,9 @@ def evaluate_candidates(
         worst_return = float(min(item["total_return"] for item in fold_metrics))
         median_sharpe = float(pd.Series([item["sharpe_ratio"] for item in fold_metrics]).median())
         worst_drawdown = float(min(item["max_drawdown"] for item in fold_metrics))
-        # Reward repeatable fold returns and Sharpe, while explicitly penalizing
-        # drawdown. This is a ranking heuristic, never a forecast.
-        consistency_score = median_return + worst_return + 0.01 * median_sharpe + worst_drawdown
+        # Return/drawdown components are fractions. Sharpe is bounded so it
+        # cannot dominate a result merely because it is unitless.
+        consistency_score = ((median_return + worst_return) / 2) + worst_drawdown + 0.02 * tanh(median_sharpe)
         reports.append({
             **parameters,
             "Median OOS return": median_return,

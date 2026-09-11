@@ -1,0 +1,22 @@
+name: Test application
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+      - run: python -c "from pathlib import Path; [compile(Path(name).read_text(), name, 'exec') for name in ('app.py', 'storage.py', 'broker.py', 'portfolio.py')]; print('Syntax checks passed')"
+      - run: test -f supabase/migrations/001_managed_app_storage.sql && test -f supabase/migrations/004_copy_strategy_follows.sql

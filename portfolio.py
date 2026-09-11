@@ -129,7 +129,7 @@ def run_portfolio_backtest(signals_by_ticker: dict[str, pd.DataFrame], config: P
                 blocked += 1
                 continue
             invested = sum(float(position["shares"]) * last_prices[symbol] for symbol, position in positions.items())
-            allocation = min(config.initial_cash * config.position_size_pct, cash, max(0.0, current_equity * config.total_exposure_cap - invested))
+            allocation = min(current_equity * config.position_size_pct, cash, max(0.0, current_equity * config.total_exposure_cap - invested))
             if allocation <= 0:
                 blocked += 1
                 continue

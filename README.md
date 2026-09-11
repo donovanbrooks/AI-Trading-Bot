@@ -1,8 +1,9 @@
 # Trading Bot Lab
 
-A local research dashboard for evaluating a moving-average trading strategy.
-It is deliberately a backtesting and paper-trading tool: it does not send
-orders to a broker or handle account credentials.
+A private, paper-only research dashboard for stocks, ETFs, and crypto. It
+supports managed Supabase accounts, per-user encrypted **Alpaca paper**
+credentials, backtests, research screeners, alerts, and deliberately limited
+manual paper buys. It never enables live trading.
 
 ## Run it locally
 
@@ -18,9 +19,10 @@ streamlit run app.py
 Streamlit will open the local dashboard in a browser. Select a ticker,
 history range, moving-average windows, capital, and estimated trading costs.
 
-## What the first app version does
+## What the app does
 
-- Downloads daily market data from Yahoo Finance.
+- Downloads market data from Alpaca, with optional Twelve Data international
+  research data.
 - Generates moving-average crossover signals.
 - Executes a signal on the *next* session's open, preventing same-bar
   look-ahead bias.
@@ -64,7 +66,9 @@ do not predict future results and this is not financial advice.
 ## Alpaca paper-account connection
 
 The dashboard can check an Alpaca **paper** account and submit a deliberately
-limited manual paper buy. It never enables live trading. Install the updated
+limited manual paper buy. Credentials are encrypted server-side using a stable
+`APP_ENCRYPTION_KEY`; never rotate that key until existing encrypted records
+have been migrated. It never enables live trading. Install the updated
 dependencies, then create a local credential file:
 
 ```bash
